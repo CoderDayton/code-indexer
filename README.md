@@ -53,7 +53,92 @@ OLLAMA_MODEL=nomic-embed-text:v1.5
 EMBEDDING_DIMENSIONS=768
 ```
 
-## 📖 Usage
+## � MCP Installation
+
+### GitHub Copilot Integration
+
+Add this configuration to your `mcp.json` file (usually located at `%APPDATA%\Code\User\mcp.json` on Windows or `~/.config/Code/User/mcp.json` on macOS/Linux):
+
+```json
+{
+  "servers": {
+    "code-indexer": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "code-indexer@latest"
+      ],
+      "type": "streamable-http",
+      "url": "http://localhost:3000/mcp",
+      "env": {
+        "PORT": "3000",
+        "QDRANT_URL": "http://localhost:6333",
+        "QDRANT_API_KEY": "your_api_key",
+        "OLLAMA_HOST": "http://localhost:11434",
+        "OLLAMA_MODEL": "nomic-embed-text:v1.5",
+        "EMBEDDING_DIMENSIONS": "768"
+      },
+      "runOnStart": false,
+      "executeIndexOnToolRun": true
+    }
+  }
+}
+```
+
+### Alternative: Use .env File
+
+Instead of environment variables in `mcp.json`, create a `.env` file in your project directory:
+
+```bash
+# .env file in your project root
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=your_api_key
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=nomic-embed-text:v1.5
+EMBEDDING_DIMENSIONS=768
+COLLECTION_NAME=code_index
+MAX_CONCURRENCY=5
+BATCH_SIZE=10
+```
+
+Then use simplified MCP configuration:
+
+```json
+{
+  "servers": {
+    "code-indexer": {
+      "command": "npx",
+      "args": ["-y", "code-indexer@latest"],
+      "type": "streamable-http",
+      "url": "http://localhost:3000/mcp",
+      "runOnStart": false,
+      "executeIndexOnToolRun": true
+    }
+  }
+}
+```
+
+### Claude Desktop Integration
+
+For Claude Desktop, add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "code-indexer": {
+      "command": "npx",
+      "args": ["-y", "code-indexer@latest"],
+      "env": {
+        "QDRANT_URL": "http://localhost:6333",
+        "OLLAMA_MODEL": "nomic-embed-text:v1.5",
+        "EMBEDDING_DIMENSIONS": "768"
+      }
+    }
+  }
+}
+```
+
+## �📖 Usage
 
 ### Search Examples
 
