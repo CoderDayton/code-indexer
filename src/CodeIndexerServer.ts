@@ -1,5 +1,11 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { 
+	ListToolsRequestSchema, 
+	CallToolRequestSchema, 
+	ErrorCode, 
+	McpError 
+} from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { QdrantClient } from '@qdrant/js-client-rest'
 import { CodeIndexer } from './CodeIndexer.js'
@@ -12,7 +18,6 @@ interface StatusResponse {
 	collectionName: string
 	qdrantUrl: string
 	embeddingModel: string
-	serverPort: number
 	qdrantConnected: boolean
 	ollamaHost: string
 }
@@ -35,8 +40,8 @@ export class CodeIndexerServer {
 	private collectionName: string
 	private indexer: CodeIndexer
 	private watcher: FileWatcher
-	private mcpServer: McpServer
-	private transport: StreamableHTTPServerTransport
+	private mcpServer: Server
+	private transport: StdioServerTransport
 	private logger: Logger
 
 	constructor(config?: Config) {
@@ -98,248 +103,229 @@ export class CodeIndexerServer {
 
 		this.watcher = new FileWatcher(this.indexer, this.config.watching)
 
-		// Create MCP server
-		this.mcpServer = new McpServer({
+		// Create MCP server with stdio capabilities
+		this.mcpServer = new Server({
 			name: 'code-indexer',
 			version: '1.0.0',
+		}, {
+			capabilities: {
+				tools: {},
+			},
 		})
 
 		// Set up transport
-		this.transport = new StreamableHTTPServerTransport({
-			sessionIdGenerator: () => Math.random().toString(36).substring(2, 15),
-			enableJsonResponse: true,
-		})
+		this.transport = new StdioServerTransport()
 
 		this.setupTools()
 	}
 
 	/**
-	 * Sets up MCP tools
+	 * Sets up MCP tools using stdio transport
 	 */
 	private setupTools(): void {
-		// Index specific files tool
-		this.mcpServer.registerTool(
-			'index_specific_files',
-			{
-				description: 'Index specific files in the codebase',
-				inputSchema: {
-					filePaths: z.array(z.string()).describe('Array of file paths to index'),
-				},
-			},
-			async ({ filePaths }) => {
-				try {
-					if (!Array.isArray(filePaths)) {
-						return {
-							content: [],
-							isError: true,
-							error: { type: 'invalid_request', message: 'filePaths must be an array' },
+		// Set up tool list handler
+		this.mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+			return {
+				tools: [
+					{
+						name: 'index_specific_files',
+						description: 'Index specific files in the codebase',
+						inputSchema: {
+							type: 'object',
+							properties: {
+								filePaths: {
+									type: 'array',
+									items: { type: 'string' },
+									description: 'Array of file paths to index'
+								}
+							},
+							required: ['filePaths']
+						}
+					},
+					{
+						name: 'retrieve_data',
+						description: 'Search for code using a natural language query',
+						inputSchema: {
+							type: 'object',
+							properties: {
+								query: {
+									type: 'string',
+									description: 'The search query'
+								},
+								topK: {
+									type: 'number',
+									description: 'Number of results to return (default: 10)'
+								}
+							},
+							required: ['query']
+						}
+					},
+					{
+						name: 'reindex_all',
+						description: 'Reindex the entire codebase in the specified directory',
+						inputSchema: {
+							type: 'object',
+							properties: {
+								directory: {
+									type: 'string',
+									description: 'The directory to reindex (default: current directory)'
+								}
+							}
+						}
+					},
+					{
+						name: 'start_watching',
+						description: 'Start watching for file changes and automatically index them',
+						inputSchema: {
+							type: 'object',
+							properties: {
+								directory: {
+									type: 'string',
+									description: 'The directory to watch (default: current directory)'
+								}
+							}
+						}
+					},
+					{
+						name: 'stop_watching',
+						description: 'Stop watching for file changes',
+						inputSchema: {
+							type: 'object',
+							properties: {}
+						}
+					},
+					{
+						name: 'get_status',
+						description: 'Get the current status of the code indexer',
+						inputSchema: {
+							type: 'object',
+							properties: {}
 						}
 					}
-
-					if (filePaths.length === 0) {
-						return {
-							content: [],
-							isError: true,
-							error: {
-								type: 'invalid_request',
-								message: 'filePaths array cannot be empty',
-							},
-						}
-					}
-
-					await this.indexSpecificFiles(filePaths)
-					return {
-						content: [
-							{ type: 'text', text: `Successfully indexed ${filePaths.length} files` },
-						],
-					}
-				} catch (error) {
-					console.error('Error indexing files:', error)
-					return {
-						content: [],
-						isError: true,
-						error: {
-							type: 'internal_error',
-							message: error instanceof Error ? error.message : 'Unknown error',
-						},
-					}
-				}
+				]
 			}
-		)
+		})
 
-		// Retrieve data tool (search)
-		this.mcpServer.registerTool(
-			'retrieve_data',
-			{
-				description: 'Search for code using a natural language query',
-				inputSchema: {
-					query: z.string().describe('The search query'),
-					topK: z
-						.number()
-						.optional()
-						.describe('Number of results to return (default: 10)'),
+		// Set up tool call handler
+		this.mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+			const { name, arguments: args } = request.params
+
+			try {
+				switch (name) {
+					case 'index_specific_files':
+						return await this.handleIndexSpecificFiles(args as { filePaths: string[] })
+
+					case 'retrieve_data':
+						return await this.handleRetrieveData(args as { query: string; topK?: number })
+
+					case 'reindex_all':
+						return await this.handleReindexAll(args as { directory?: string })
+
+					case 'start_watching':
+						return await this.handleStartWatching(args as { directory?: string })
+
+					case 'stop_watching':
+						return await this.handleStopWatching()
+
+					case 'get_status':
+						return await this.handleGetStatus()
+
+					default:
+						throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`)
+				}
+			} catch (error) {
+				console.error(`Error executing tool ${name}:`, error)
+				throw new McpError(
+					ErrorCode.InternalError,
+					error instanceof Error ? error.message : 'Unknown error'
+				)
+			}
+		})
+	}
+
+	// Tool handlers
+	private async handleIndexSpecificFiles(args: { filePaths: string[] }) {
+		const { filePaths } = args
+
+		if (!Array.isArray(filePaths)) {
+			throw new McpError(ErrorCode.InvalidParams, 'filePaths must be an array')
+		}
+
+		if (filePaths.length === 0) {
+			throw new McpError(ErrorCode.InvalidParams, 'filePaths array cannot be empty')
+		}
+
+		await this.indexSpecificFiles(filePaths)
+		return {
+			content: [
+				{ type: 'text', text: `Successfully indexed ${filePaths.length} files` },
+			],
+		}
+	}
+
+	private async handleRetrieveData(args: { query: string; topK?: number }) {
+		const { query, topK } = args
+
+		if (!query || query.trim().length === 0) {
+			throw new McpError(ErrorCode.InvalidParams, 'Query cannot be empty')
+		}
+
+		const results = await this.retrieveData(query, topK || 10)
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Found ${results.length} results:\n${JSON.stringify(
+						results,
+						null,
+						2
+					)}`,
 				},
-			},
-			async ({ query, topK }) => {
-				try {
-					if (!query || query.trim().length === 0) {
-						return {
-							content: [],
-							isError: true,
-							error: { type: 'invalid_request', message: 'Query cannot be empty' },
-						}
-					}
+			],
+		}
+	}
 
-					const results = await this.retrieveData(query, topK || 10)
-					return {
-						content: [
-							{
-								type: 'text',
-								text: `Found ${results.length} results:\\n${JSON.stringify(
-									results,
-									null,
-									2
-								)}`,
-							},
-						],
-					}
-				} catch (error) {
-					console.error('Error retrieving data:', error)
-					return {
-						content: [],
-						isError: true,
-						error: {
-							type: 'internal_error',
-							message: error instanceof Error ? error.message : 'Unknown error',
-						},
-					}
-				}
-			}
-		)
+	private async handleReindexAll(args: { directory?: string }) {
+		const { directory } = args
+		const targetDir = directory || './'
+		await this.reindexAll(targetDir)
+		return {
+			content: [
+				{ type: 'text', text: `Successfully reindexed all files in ${targetDir}` },
+			],
+		}
+	}
 
-		// Reindex all tool
-		this.mcpServer.registerTool(
-			'reindex_all',
-			{
-				description: 'Reindex the entire codebase in the specified directory',
-				inputSchema: {
-					directory: z
-						.string()
-						.optional()
-						.describe('The directory to reindex (default: current directory)'),
+	private async handleStartWatching(args: { directory?: string }) {
+		const { directory } = args
+		const targetDir = directory || './'
+		await this.startWatching(targetDir)
+		return {
+			content: [
+				{ type: 'text', text: `Started watching for changes in ${targetDir}` },
+			],
+		}
+	}
+
+	private async handleStopWatching() {
+		await this.stopWatching()
+		return {
+			content: [
+				{ type: 'text', text: 'Stopped watching for file changes' },
+			],
+		}
+	}
+
+	private async handleGetStatus() {
+		const status = await this.getStatus()
+		return {
+			content: [
+				{
+					type: 'text',
+					text: `Status:\n${JSON.stringify(status, null, 2)}`,
 				},
-			},
-			async ({ directory }) => {
-				try {
-					const targetDir = directory || './'
-					await this.reindexAll(targetDir)
-					return {
-						content: [
-							{ type: 'text', text: `Successfully reindexed all files in ${targetDir}` },
-						],
-					}
-				} catch (error) {
-					console.error('Error reindexing:', error)
-					return {
-						content: [],
-						isError: true,
-						error: {
-							type: 'internal_error',
-							message: error instanceof Error ? error.message : 'Unknown error',
-						},
-					}
-				}
-			}
-		)
-
-		// Get status tool
-		this.mcpServer.registerTool(
-			'get_status',
-			{
-				description: 'Get the current status of the indexer',
-			},
-			async () => {
-				try {
-					const status = await this.getStatus()
-					return {
-						content: [
-							{
-								type: 'text',
-								text: `Status:\\n${JSON.stringify(status, null, 2)}`,
-							},
-						],
-					}
-				} catch (error) {
-					console.error('Error getting status:', error)
-					return {
-						content: [],
-						isError: true,
-						error: {
-							type: 'internal_error',
-							message: error instanceof Error ? error.message : 'Unknown error',
-						},
-					}
-				}
-			}
-		)
-
-		// Start watching tool
-		this.mcpServer.registerTool(
-			'start_watching',
-			{
-				description: 'Start watching a directory for file changes',
-				inputSchema: {
-					directory: z
-						.string()
-						.optional()
-						.describe('The directory to watch (default: current directory)'),
-				},
-			},
-			async ({ directory }) => {
-				try {
-					this.startWatching(directory || './')
-					return {
-						content: [{ type: 'text', text: 'Started watching' }],
-					}
-				} catch (error) {
-					console.error('Error starting watch:', error)
-					return {
-						content: [],
-						isError: true,
-						error: {
-							type: 'internal_error',
-							message: error instanceof Error ? error.message : 'Unknown error',
-						},
-					}
-				}
-			}
-		)
-
-		// Stop watching tool
-		this.mcpServer.registerTool(
-			'stop_watching',
-			{
-				description: 'Stop watching for file changes',
-			},
-			async () => {
-				try {
-					this.stopWatching()
-					return {
-						content: [{ type: 'text', text: 'Stopped watching' }],
-					}
-				} catch (error) {
-					console.error('Error stopping watch:', error)
-					return {
-						content: [],
-						isError: true,
-						error: {
-							type: 'internal_error',
-							message: error instanceof Error ? error.message : 'Unknown error',
-						},
-					}
-				}
-			}
-		)
+			],
+		}
 	}
 
 	/**
@@ -482,7 +468,6 @@ export class CodeIndexerServer {
 				collectionName: this.collectionName,
 				qdrantUrl: this.config.qdrant.url,
 				embeddingModel: this.config.embedding.model,
-				serverPort: this.config.server.port,
 				qdrantConnected,
 				ollamaHost: this.config.ollama.host,
 			}
@@ -532,16 +517,37 @@ export class CodeIndexerServer {
 	}
 
 	/**
-	 * Starts the MCP server
+	 * Starts the MCP server with stdio transport
 	 * @throws Error if server fails to start
 	 */
 	async startServer(): Promise<void> {
 		try {
-			// Connect the server to the transport
+			// Set up error handling
+			this.mcpServer.onerror = (error) => {
+				console.error('MCP Server error:', error)
+			}
+
+			// Set up process signal handlers for graceful shutdown
+			const shutdown = async () => {
+				console.error('Shutting down server...')
+				try {
+					await this.mcpServer.close()
+					process.exit(0)
+				} catch (error) {
+					console.error('Error during shutdown:', error)
+					process.exit(1)
+				}
+			}
+
+			process.on('SIGINT', shutdown)
+			process.on('SIGTERM', shutdown)
+
+			// Connect the server to the stdio transport
 			await this.mcpServer.connect(this.transport)
 
-			console.log(`Code Indexer MCP Server listening on port ${this.config.server.port}`)
-			console.log(`MCP endpoint: http://localhost:${this.config.server.port}/mcp`)
+			// Log to stderr to avoid interfering with stdio communication
+			console.error('Code Indexer MCP Server started successfully')
+			console.error('Using stdio transport for communication')
 		} catch (error) {
 			console.error('Error starting server:', error)
 			throw new Error(
