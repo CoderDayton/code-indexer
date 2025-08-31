@@ -20,7 +20,7 @@ yarn-error.log*
 Thumbs.db
 
 # Build artifacts
-# dist/
+dist/
 *.tsbuildinfo
 
 # TypeScript

@@ -1,3 +1,0 @@
-2025-08-31T13:56:09.987Z [INFO] [CodeIndexerServer] Initializing Qdrant client {"url":"https://82630fd7-0efd-465f-8719-63d6f30b80a0.us-west-1-0.aws.cloud.qdrant.io:6333"}
-2025-08-31T13:56:10.019Z [INFO] [CodeIndexerServer] Qdrant client initialized successfully
-2025-08-31T13:56:10.020Z [INFO] [CodeIndexerServer] CodeIndexer initialized successfully
