@@ -1,10 +1,10 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { 
-	ListToolsRequestSchema, 
-	CallToolRequestSchema, 
-	ErrorCode, 
-	McpError 
+import {
+	ListToolsRequestSchema,
+	CallToolRequestSchema,
+	ErrorCode,
+	McpError
 } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { QdrantClient } from '@qdrant/js-client-rest'
@@ -109,7 +109,18 @@ export class CodeIndexerServer {
 			version: '1.0.0',
 		}, {
 			capabilities: {
-				tools: {},
+				tools: {
+                    supported: true,
+                    // List of available tools
+                    available: [
+                        'index_specific_files',
+                        'retrieve_data',
+                        'reindex_all',
+                        'start_watching',
+                        'stop_watching',
+                        'get_status'
+                    ]
+                },
 			},
 		})
 

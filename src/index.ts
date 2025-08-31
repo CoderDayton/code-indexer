@@ -18,7 +18,7 @@ async function main() {
 
 		// Initialize the server (no auto-indexing)
 		await server.initialize()
-		
+
 		// Log to stderr to avoid interfering with stdio communication
 		console.error('Code Indexer MCP Server initialized')
 

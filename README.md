@@ -70,7 +70,7 @@ Add this configuration to your `mcp.json` file (usually located at `%APPDATA%\Co
       ],
       "env": {
         "QDRANT_URL": "http://localhost:6333",
-        "QDRANT_API_KEY": "your_api_key",
+        "QDRANT_API_KEY": "(preferably put in .env)",
         "OLLAMA_HOST": "http://localhost:11434",
         "OLLAMA_MODEL": "nomic-embed-text:v1.5",
         "EMBEDDING_DIMENSIONS": "768"
@@ -93,12 +93,12 @@ Add this configuration to your Claude Desktop config file:
     "code-indexer": {
       "command": "npx",
       "args": [
-        "-y", 
+        "-y",
         "code-indexer@latest"
       ],
       "env": {
         "QDRANT_URL": "http://localhost:6333",
-        "QDRANT_API_KEY": "your_api_key",
+        "QDRANT_API_KEY": "(preferably put in .env)",
         "OLLAMA_HOST": "http://localhost:11434",
         "OLLAMA_MODEL": "nomic-embed-text:v1.5",
         "EMBEDDING_DIMENSIONS": "768"
@@ -137,18 +137,6 @@ Then use simplified MCP configuration:
 }
 ```
 
-## 📖 Usage
-
-### Search Examples
-
-```bash
-# Natural language queries
-"authentication middleware functions"
-"React components for forms"
-"error handling patterns"
-"database connection setup"
-```
-
 ### MCP Tools
 
 | Tool | Purpose | Example |
@@ -158,44 +146,6 @@ Then use simplified MCP configuration:
 | `get_status` | Server health check | `{}` |
 | `start_watching` | Monitor file changes | `{"directory": "./src"}` |
 | `reindex_all` | Full reindexing | `{"directory": "./", "force": true}` |
-```
-
-Then use simplified MCP configuration:
-
-```json
-{
-  "servers": {
-    "code-indexer": {
-      "command": "npx",
-      "args": ["-y", "code-indexer@latest"],
-      "type": "streamable-http",
-      "url": "http://localhost:3000/mcp",
-      "runOnStart": false,
-      "executeIndexOnToolRun": true
-    }
-  }
-}
-```
-
-### Claude Desktop Integration
-
-For Claude Desktop, add to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "code-indexer": {
-      "command": "npx",
-      "args": ["-y", "code-indexer@latest"],
-      "env": {
-        "QDRANT_URL": "http://localhost:6333",
-        "OLLAMA_MODEL": "nomic-embed-text:v1.5",
-        "EMBEDDING_DIMENSIONS": "768"
-      }
-    }
-  }
-}
-```
 
 ## �📖 Usage
 
@@ -208,16 +158,6 @@ For Claude Desktop, add to your `claude_desktop_config.json`:
 "error handling patterns"
 "database connection setup"
 ```
-
-### MCP Tools
-
-| Tool | Purpose | Example |
-|------|---------|---------|
-| `search_code` | Semantic code search | `{"query": "user authentication", "topK": 5}` |
-| `index_files` | Index specific files | `{"filePaths": ["./src/auth.ts"]}` |
-| `get_status` | Server health check | `{}` |
-| `start_watching` | Monitor file changes | `{"directory": "./src"}` |
-| `reindex_all` | Full reindexing | `{"directory": "./", "force": true}` |
 
 ## ⚙️ Configuration
 
