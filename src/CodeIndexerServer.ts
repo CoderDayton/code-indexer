@@ -157,7 +157,7 @@ export class CodeIndexerServer {
 		this.mcpServer = new Server(
 			{
 				name: 'code-indexer',
-				version: '1.0.3',
+				version: '1.0.5',
 			},
 			{
 				capabilities: {

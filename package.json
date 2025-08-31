@@ -1,6 +1,6 @@
 {
     "name": "code-indexer",
-    "version": "1.0.3",
+    "version": "1.0.5",
     "author": "malu",
     "description": "A code indexing service using MCP, Ollama, and Qdrant.",
     "main": "dist/index.js",
