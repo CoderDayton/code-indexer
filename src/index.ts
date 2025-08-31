@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { CodeIndexerServer } from './CodeIndexerServer.js'
 import { loadConfig } from './config.js'
 
