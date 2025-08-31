@@ -1,6 +1,6 @@
 import { CodeIndexer } from '../CodeIndexer.js'
 import { QdrantClient } from '@qdrant/js-client-rest'
-import { Config } from '../config.js'
+import { Config } from '../env/schema.js'
 
 // Mock QdrantClient
 jest.mock('@qdrant/js-client-rest')
@@ -16,11 +16,18 @@ describe('CodeIndexer', () => {
 		mockConfig = {
 			qdrant: {
 				url: 'http://localhost:6333',
+				apiKey: 'test-key',
+				https: false,
+				timeout: 30000,
+				retries: 3,
+			},
+			ollama: {
+				host: 'http://localhost:11434',
+				model: 'nomic-embed-text:latest',
 				timeout: 30000,
 				retries: 3,
 			},
 			embedding: {
-				model: 'nomic-embed-text:latest',
 				dimensions: 768,
 				chunkSize: 1000,
 				chunkOverlap: 200,
@@ -45,16 +52,14 @@ describe('CodeIndexer', () => {
 			server: {
 				port: 3000,
 			},
-			ollama: {
-				host: 'http://localhost:11434',
-				timeout: 30000,
-				retries: 3,
+			app: {
+				nodeEnv: 'test',
+				baseDirectory: process.cwd(),
+				collectionName: 'test_collection',
 			},
-			baseDirectory: process.cwd(),
-			collectionName: 'test_collection',
 		}
 
-		indexer = new CodeIndexer(mockQdrantClient, 'test_collection', mockConfig)
+		indexer = new CodeIndexer(mockQdrantClient, mockConfig.app.collectionName, mockConfig)
 	})
 
 	describe('Configuration', () => {

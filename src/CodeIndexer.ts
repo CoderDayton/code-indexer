@@ -6,7 +6,7 @@ import { QdrantClient } from '@qdrant/js-client-rest'
 import crypto from 'crypto'
 import { glob } from 'glob'
 import { Logger, getLogger } from './logger.js'
-import { Config } from './config.js'
+import { Config } from './env/schema.js'
 import { ICodeIndexer } from './ICodeIndexer.js'
 
 interface EmbeddingConfig {
@@ -70,14 +70,19 @@ export class CodeIndexer implements ICodeIndexer {
 	constructor(qdrantClient: QdrantClient, collectionName: string, config: Config) {
 		this.qdrantClient = qdrantClient
 		this.collectionName = collectionName
-		this.embeddingConfig = config.embedding
+		this.embeddingConfig = {
+			model: config.ollama.model,
+			dimensions: config.embedding.dimensions,
+			chunkSize: config.embedding.chunkSize,
+			chunkOverlap: config.embedding.chunkOverlap
+		}
 		this.config = config
 		this.logger = getLogger('CodeIndexer')
 		this.maxConcurrency = config.indexing.maxConcurrency
 
 		// Initialize file paths for persistence
-		this.incrementalStateFile = path.join(config.baseDirectory, '.indexer-state.json')
-		this.metadataFile = path.join(config.baseDirectory, '.indexer-metadata.json')
+		this.incrementalStateFile = path.join(config.app.baseDirectory || process.cwd(), '.indexer-state.json')
+		this.metadataFile = path.join(config.app.baseDirectory || process.cwd(), '.indexer-metadata.json')
 
 		// Initialize Ollama client with proper configuration and error handling
 		try {

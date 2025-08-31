@@ -1,98 +1,55 @@
 #!/usr/bin/env node
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
-import * as dotenv from 'dotenv'
-
-// Load environment variables (for local development)
-const here = dirname(fileURLToPath(import.meta.url))
-try {
-	dotenv.config({ path: join(here, '..', '.env') })
-} catch (error) {
-	// .env file might not exist when running via npx, which is fine
-	// Environment variables should come from MCP client configuration
-}
-
+import { initializeConfiguration, getConfigManager } from './config/unified.js'
 import { CodeIndexerServer } from './CodeIndexerServer.js'
-import { loadConfig } from './config.js'
 
-/**
- * Wait for configuration to stabilize and validate required environment variables
- * @param maxWaitMs Maximum time to wait in milliseconds
- * @returns Promise that resolves when config is ready or rejects if timeout
- */
-async function waitForConfigReady(maxWaitMs: number = 3000): Promise<void> {
-	const startTime = Date.now()
-	const checkInterval = 100 // Check every 100ms
-
-	return new Promise((resolve, reject) => {
-		const checkConfig = () => {
-			const elapsed = Date.now() - startTime
-
-			if (elapsed >= maxWaitMs) {
-				reject(
-					new Error(
-						`Configuration timeout: Required environment variables not loaded after ${maxWaitMs}ms. Please ensure QDRANT_API_KEY is available via .env file or MCP client configuration.`
-					)
-				)
-				return
-			}
-
-			try {
-				const config = loadConfig()
-
-				// Check if we have the required API key
-				if (config.qdrant.apiKey && config.qdrant.apiKey.trim().length > 0) {
-					console.error(`✓ Configuration loaded successfully after ${elapsed}ms`)
-					resolve()
-					return
-				}
-
-				// If no API key yet, wait and try again
-				setTimeout(checkConfig, checkInterval)
-			} catch (error) {
-				// Configuration loading failed, wait and try again
-				setTimeout(checkConfig, checkInterval)
-			}
-		}
-
-		// Start checking immediately
-		checkConfig()
-	})
-}
-
-/**
- * Main entry point for the Code Indexer MCP Server with stdio transport
- *
- * This function initializes and starts the server with stdin/stdout communication
- *
- * @author malu
- */
 async function main() {
 	try {
-		console.error('Starting Code Indexer MCP Server...')
+		console.log('🔧 Initializing configuration system...')
 
-		// Wait for configuration to be ready (give environment variables time to load)
-		console.error('⏳ Waiting for configuration to load...')
-		await waitForConfigReady(3000)
+		// Initialize the new unified configuration system
+		const initResult = await initializeConfiguration()
 
-		const config = loadConfig()
+		if (!initResult.success) {
+			console.error('❌ Configuration initialization failed')
+
+			if (initResult.troubleshooting && initResult.troubleshooting.length > 0) {
+				console.error('\n🔍 Troubleshooting Guide:')
+				initResult.troubleshooting.forEach((line: string) => console.error(line))
+			}
+
+			if (initResult.validationErrors && initResult.validationErrors.length > 0) {
+				console.error('\n📋 Validation Errors:')
+				initResult.validationErrors.forEach((error: { field: string; message: string }, index: number) => {
+					console.error(`${index + 1}. ${error.field}: ${error.message}`)
+				})
+			}
+
+			process.exit(1)
+		}
+
+		console.log('✅ Configuration initialized successfully')
+		console.log(`📁 Loaded environment files: ${initResult.environment.loadedFiles?.join(', ') || 'none'}`)
+
+		// Get the validated configuration
+		const configManager = getConfigManager()
+		const config = configManager.getConfig()
+
+		console.log('🚀 Starting Code Indexer MCP Server...')
 		const server = new CodeIndexerServer(config)
-		await server.initialize()
-
-		console.error('✓ Code Indexer MCP Server initialized successfully')
-
-		// Start MCP server with stdio transport
 		await server.startServer()
-	} catch (error) {
-		console.error('✗ Error initializing server:', error)
-		console.error('\nTroubleshooting tips:')
-		console.error('- Ensure QDRANT_API_KEY is set in your environment or .env file')
-		console.error(
-			'- Check that your MCP client configuration includes the required env variables'
-		)
-		console.error('- Verify that Qdrant is running and accessible at the configured URL')
+
+	} catch (err: any) {
+		console.error('💥 Fatal error initializing server:', err)
+		console.error('\n🔍 Common Solutions:')
+		console.error('- Check your .env file exists and has correct format')
+		console.error('- Verify QDRANT_URL and QDRANT_API_KEY are properly set')
+		console.error('- Ensure URLs include protocol (https://) and port if needed')
+		console.error('- Run `npm run validate-env` to check configuration')
 		process.exit(1)
 	}
 }
 
-main().catch(console.error)
+main().catch((err: any) => {
+	console.error('💥 Unhandled error:', err)
+	process.exit(1)
+})

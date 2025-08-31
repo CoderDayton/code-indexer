@@ -9,7 +9,7 @@ import {
 import { QdrantClient } from '@qdrant/js-client-rest'
 import { CodeIndexer } from './CodeIndexer.js'
 import { FileWatcher } from './FileWatcher.js'
-import { Config, ConfigManager } from './config.js'
+import { Config } from './env/schema.js'
 import { Logger, getLogger } from './logger.js'
 
 interface StatusResponse {
@@ -34,7 +34,6 @@ interface StatusResponse {
  */
 export class CodeIndexerServer {
 	private config: Config
-	private configManager: ConfigManager
 	private qdrantClient: QdrantClient
 	private collectionName: string
 	private indexer: CodeIndexer
@@ -43,11 +42,9 @@ export class CodeIndexerServer {
 	private transport: StdioServerTransport
 	private logger: Logger
 
-	constructor(config?: Config) {
-		// Initialize configuration management
-		this.configManager = ConfigManager.getInstance()
-		this.config = config || this.configManager.loadConfig()
-		this.collectionName = this.config.collectionName
+	constructor(config: Config) {
+		this.config = config
+		this.collectionName = this.config.app.collectionName
 
 		// Initialize logger
 		this.logger = getLogger('CodeIndexerServer')
@@ -69,16 +66,34 @@ export class CodeIndexerServer {
 
 			// Add API key if provided
 			if (key) {
-				const validKey = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key)
-				if (!validKey) {
+				const resolvedKey = (
+					this.config.qdrant.apiKey ??
+					process.env.QDRANT_API_KEY ??
+					''
+				).trim()
+				if (!resolvedKey) {
 					this.logger.error(
-						'Invalid Qdrant API key format - expected JWT format (xxx.yyy.zzz)'
+						'No Qdrant API key provided. Set QDRANT_API_KEY via OS env, .env, or MCP client env when client-spawned.'
 					)
 					throw new Error(
-						'Invalid Qdrant API key format. Expected JWT format with three base64 segments separated by dots.'
+						'No Qdrant API key provided. Set QDRANT_API_KEY via OS env, .env, or MCP client configuration.'
 					)
 				}
-				qdrantConfig.apiKey = key
+				if (/\s/.test(resolvedKey)) {
+					throw new Error(
+						'QDRANT_API_KEY contains whitespace; check your .env formatting.'
+					)
+				}
+				// Optional: warn (don’t block) if it doesn’t look like a JWT
+				if (
+					!/^[A-Za-z0-9._-]+$/.test(resolvedKey) ||
+					resolvedKey.split('.').length !== 3
+				) {
+					this.logger.warn(
+						'Qdrant API key does not look like a JWT (xxx.yyy.zzz). Proceeding anyway.'
+					)
+				}
+				qdrantConfig.apiKey = resolvedKey
 				this.logger.info('Qdrant API key loaded and validated successfully')
 			} else if (process.env.QDRANT_API_KEY) {
 				const envKey = process.env.QDRANT_API_KEY
@@ -506,7 +521,7 @@ export class CodeIndexerServer {
 				watching: this.watcher.isWatching(),
 				collectionName: this.collectionName,
 				qdrantUrl: this.config.qdrant.url,
-				embeddingModel: this.config.embedding.model,
+				embeddingModel: this.config.ollama.model,
 				qdrantConnected,
 				ollamaHost: this.config.ollama.host,
 			}

@@ -1,312 +1,123 @@
-# 🔍 Code Indexer MCP Server
+# 🚀 Code Indexer MCP Server
 
-> **Intelligent Codebase Search with Vector Embeddings**
+> **Transform your AI's understanding of code!** 🤖✨
 
-Transform your codebase into a searchable knowledge base using state-of-the-art vector embeddings and semantic search.
+Make any AI model instantly understand your entire codebase with lightning-fast semantic search. No more "find that function" - just ask naturally and get precise results!
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Qdrant](https://img.shields.io/badge/Qdrant-DC143C?style=flat-square&logo=qdrant&logoColor=white)](https://qdrant.tech/)
-[![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat-square&logo=ollama&logoColor=white)](https://ollama.ai/)
+## ✨ What Makes This Special?
 
-## ✨ Features
+🧠 **Talk to Your Code** - Ask "find the authentication logic" instead of grep-ing
+⚡ **Blazing Fast** - Powered by Ollama embeddings + Qdrant vector magic
+🔄 **Live Updates** - Code changes? We've got you covered automatically
+🎯 **Zero Setup Hassles** - We fixed all the config headaches for you!
+🛡️ **Bulletproof** - Production-ready with comprehensive error handling
+🎨 **VS Code Native** - Seamlessly integrates with your workspace
 
-- 🧠 **Semantic Search** - Natural language code queries
-- ⚡ **Real-time Indexing** - Incremental updates with file watching
-- 🔧 **MCP Integration** - AI assistant compatibility
-- 🛡️ **Production Ready** - Robust error handling and security
-- 📁 **Multi-language** - TypeScript, Python, Java, C++, and more
-- ☁️ **Flexible Deployment** - Local or cloud Qdrant support
+## 🎯 Perfect For
 
-## 🚀 Quick Start
+- **AI Pair Programming** - Give your AI assistant superpowers
+- **Large Codebases** - Navigate massive projects effortlessly
+- **Code Reviews** - Find similar patterns and implementations
+- **Documentation** - Auto-discover relevant examples
+- **Refactoring** - Locate all usage patterns instantly
 
-### Prerequisites
+## ⚡ Quick Start (3 minutes!)
 
-- Node.js 18+
-- Ollama with embedding model
-- Qdrant (local or cloud)
+### What You Need
 
-### Installation
+- Node.js 18+ (check with `node --version`)
+- [Ollama](https://ollama.ai) with `nomic-embed-text` model
+- [Qdrant](https://qdrant.tech) running (Docker: `docker run -p 6333:6333 qdrant/qdrant`)
+
+### Get Running
 
 ```bash
-# Install dependencies
-npm install && npm run build
+# 1. Clone and install
+git clone https://github.com/CoderDayton/code-indexer
+cd code-indexer
+npm install
 
-# Setup Ollama model
-ollama pull nomic-embed-text:v1.5
-
-# Configure environment
+# 2. Copy the example config (we made this super easy!)
 cp .env.example .env
-# Edit .env with your Qdrant and Ollama settings
 
-# Start the server
-npm start
+# 3. Start your engines
+npm run build && npm start
 ```
 
-### Basic Configuration
+### 🔧 Quick Config
 
-```bash
-# Essential settings in .env
-QDRANT_URL=https://your-cluster.cloud.qdrant.io:6333
-QDRANT_API_KEY=your-api-key
-OLLAMA_MODEL=nomic-embed-text:v1.5
-EMBEDDING_DIMENSIONS=768
-```
+Your `.env` file is pre-configured with sensible defaults:
 
-## � MCP Installation
-
-### GitHub Copilot Integration
-
-Add this configuration to your `mcp.json` file (usually located at `%APPDATA%\Code\User\mcp.json` on Windows or `~/.config/Code/User/mcp.json` on macOS/Linux):
-
-```json
-{
-  "servers": {
-    "code-indexer": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "code-indexer@latest"
-      ],
-      "env": {
-        "QDRANT_URL": "http://localhost:6333",
-        "QDRANT_API_KEY": "(preferably put in .env)",
-        "OLLAMA_HOST": "http://localhost:11434",
-        "OLLAMA_MODEL": "nomic-embed-text:v1.5",
-        "EMBEDDING_DIMENSIONS": "768"
-      }
-    }
-  }
-}
-```
-
-### Claude Desktop Integration
-
-Add this configuration to your Claude Desktop config file:
-
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "code-indexer": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "code-indexer@latest"
-      ],
-      "env": {
-        "QDRANT_URL": "http://localhost:6333",
-        "QDRANT_API_KEY": "(preferably put in .env)",
-        "OLLAMA_HOST": "http://localhost:11434",
-        "OLLAMA_MODEL": "nomic-embed-text:v1.5",
-        "EMBEDDING_DIMENSIONS": "768"
-      }
-    }
-  }
-}
-```
-
-### Local Development Setup
-
-Instead of environment variables in configuration, create a `.env` file in your project directory:
-
-```bash
-# .env file in your project root
+```env
+# Already set up for local development!
 QDRANT_URL=http://localhost:6333
-QDRANT_API_KEY=your_api_key
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=nomic-embed-text:v1.5
-EMBEDDING_DIMENSIONS=768
+OLLAMA_MODEL=nomic-embed-text:latest
 COLLECTION_NAME=code_index
-MAX_CONCURRENCY=5
-BATCH_SIZE=10
+# BASE_DIRECTORY=auto-detected!
 ```
 
-Then use simplified MCP configuration:
+## 🎮 Available Commands
 
-```json
-{
-  "servers": {
-    "code-indexer": {
-      "command": "npx",
-      "args": ["-y", "code-indexer@latest"]
-    }
-  }
-}
-```
+Once running, your AI can use these tools:
 
-### MCP Tools
+| Tool | What it does | Example |
+|------|-------------|---------|
+| `index_files` | Index specific files/folders | "Index my `src/` directory" |
+| `search_code` | Find code semantically | "Find JWT validation logic" |
+| `reindex_all` | Refresh everything | "Reindex after big refactor" |
+| `start_watching` | Auto-update on changes | "Watch for file changes" |
+| `get_status` | Check what's indexed | "Show indexing status" |
 
-| Tool | Purpose | Example |
-|------|---------|---------|
-| `index_specific_files` | Index specific files | `{"filePaths": ["./src/auth.ts"]}` |
-| `retrieve_data` | Semantic code search | `{"query": "user authentication", "topK": 5}` |
-| `get_status` | Server health check | `{}` |
-| `start_watching` | Monitor file changes | `{"directory": "./src"}` |
-| `reindex_all` | Full reindexing | `{"directory": "./", "force": true}` |
+## 🏗️ What We Fixed For You
 
-## �📖 Usage
+> **Fresh & Clean!** This version has been completely reorganized for maximum clarity.
 
-### Search Examples
+✅ **Unified Config System** - No more scattered config files
+✅ **Rock-Solid Validation** - Zod schemas catch config errors early
+✅ **Clean Architecture** - Easy to understand and extend
+✅ **Comprehensive Tests** - Everything is tested and verified
+✅ **Zero Legacy Cruft** - Removed all the old, confusing files
+✅ **Better Error Messages** - Actually helpful when things go wrong
+
+## 🛠️ Development Mode
 
 ```bash
-# Natural language queries
-"authentication middleware functions"
-"React components for forms"
-"error handling patterns"
-"database connection setup"
+npm run dev     # Hot reload during development
+npm test        # Run the test suite
+npm run build   # Create production build
 ```
 
-## ⚙️ Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `QDRANT_URL` | - | Qdrant server URL (required) |
-| `QDRANT_API_KEY` | - | Qdrant API key (cloud only) |
-| `OLLAMA_MODEL` | `nomic-embed-text:v1.5` | Embedding model |
-| `EMBEDDING_DIMENSIONS` | `768` | Vector dimensions |
-| `MAX_CONCURRENCY` | `5` | Parallel processing limit |
-| `BATCH_SIZE` | `10` | Files per batch |
-| `LOG_LEVEL` | `info` | Logging verbosity |
-| `COLLECTION_NAME` | `code_index` | Qdrant collection |
-
-### Performance Presets
-
-**High Performance** (16+ GB RAM)
-
-```bash
-EMBEDDING_DIMENSIONS=768
-MAX_CONCURRENCY=10
-BATCH_SIZE=20
-```
-
-**Resource Efficient** (4-8 GB RAM)
-
-```bash
-EMBEDDING_DIMENSIONS=256
-MAX_CONCURRENCY=2
-BATCH_SIZE=5
-```
-
-### Supported File Types
-
-| Language | Extensions |
-|----------|------------|
-| JavaScript/TypeScript | `.js`, `.jsx`, `.ts`, `.tsx` |
-| Python | `.py`, `.pyx`, `.pyi` |
-| Java | `.java` |
-| C/C++ | `.c`, `.cpp`, `.h`, `.hpp` |
-| Web | `.html`, `.css`, `.scss` |
-| Data | `.json`, `.yaml`, `.xml` |
-| Docs | `.md`, `.txt`, `.rst` |
-
-## 🏗️ Architecture
+## 🏛️ Architecture Overview
 
 ```text
-CodeIndexerServer (MCP Handler)
-├── CodeIndexer (Core Engine)
-│   ├── Ollama Client → Embedding Generation
-│   ├── Qdrant Client → Vector Storage
-│   └── Logger → Structured Logging
-├── FileWatcher → Real-time Monitoring
-└── ConfigManager → Environment Validation
-```
-
-### Data Flow
-
-1. **File Detection** → FileWatcher triggers
-2. **Content Processing** → Text extraction and chunking
-3. **Embedding Generation** → Ollama creates vectors
-4. **Vector Storage** → Qdrant persistence
-5. **Semantic Search** → Similarity matching
-
-## 🛡️ Production Deployment
-
-### Security Checklist
-
-- [ ] Use environment variables for credentials
-- [ ] Configure HTTPS for cloud Qdrant
-- [ ] Set appropriate log levels (`warn` or `error`)
-- [ ] Implement monitoring and alerting
-- [ ] Configure file permissions properly
-
-### Health Monitoring
-
-```bash
-# Test Qdrant connection
-curl -X GET "${QDRANT_URL}/collections"
-
-# Test Ollama
-curl -X POST "http://localhost:11434/api/embeddings" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"nomic-embed-text:v1.5","prompt":"test"}'
-
-# Check server status
-curl -X GET "http://localhost:3000/health"
+🎯 MCP Server     ➜  Talks to AI models
+🧠 Code Indexer  ➜  Processes your files
+🔍 Vector Store  ➜  Qdrant similarity search
+👁️ File Watcher  ➜  Keeps everything fresh
+⚙️ Config System ➜  Zod-validated settings
 ```
 
 ## 🐛 Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Connection failed | Check `QDRANT_URL` and network |
-| Authentication error | Verify `QDRANT_API_KEY` |
-| Model not found | Run `ollama pull <model-name>` |
-| Out of memory | Reduce `BATCH_SIZE` and `MAX_CONCURRENCY` |
-| Slow indexing | Increase `MAX_CONCURRENCY`, check hardware |
+**"Connection refused"** → Check if Qdrant/Ollama are running
+**"Model not found"** → Run `ollama pull nomic-embed-text`
+**"Permission denied"** → Make sure BASE_DIRECTORY is readable
+**Still stuck?** → Check the logs in `./logs/` directory
 
-### Debug Mode
+## 🎉 What's Next?
 
-```bash
-LOG_LEVEL=debug
-ENABLE_CONSOLE_LOGGING=true
-```
+- 🔌 **VS Code Extension** - Direct integration coming soon
+- 🌐 **Web UI** - Browse your indexed code visually
+- 🔄 **Git Integration** - Index only changed files on commits
+- 📊 **Analytics** - See what code patterns are most queried
 
-## 🤝 Contributing
+## 📜 License
 
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Make changes with tests
-4. Ensure tests pass: `npm test`
-5. Commit changes: `git commit -m 'Add amazing feature'`
-6. Push branch: `git push origin feature/amazing-feature`
-7. Open Pull Request
-
-### Development Setup
-
-```bash
-git clone https://github.com/coderdayton/code-indexer.git
-cd code-indexer
-npm install
-npm run dev
-```
-
-## 🎯 Embedding Models
-
-| Model | Dimensions | Use Case |
-|-------|------------|----------|
-| `nomic-embed-text:v1.5` | 64-768 | **Recommended** - Matryoshka learning |
-| `bge-m3:567m` | 1024 | Multilingual, high quality |
-| `bge-large-en-v1.5` | 1024 | English-focused |
-| `all-MiniLM-L6-v2` | 384 | Lightweight, fast |
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [Qdrant](https://qdrant.tech/) - Vector database
-- [Ollama](https://ollama.ai/) - Local LLM server
-- [Model Context Protocol](https://modelcontextprotocol.io/) - AI integration
-- [Nomic AI](https://www.nomic.ai/) - Embedding models
+MIT License - Build amazing things! 🚀
 
 ---
 
-**[🐛 Report Bug](https://github.com/coderdayton/code-indexer/issues)** • **[✨ Request Feature](https://github.com/coderdayton/code-indexer/issues)** • **[💬 Discussions](https://github.com/coderdayton/code-indexer/discussions)**
+### Made with ❤️ by malu
 
-### Made with ❤️ by malu*
+> 💡 **Pro tip**: Try asking your AI "show me all error handling patterns" after indexing - you'll be amazed!
