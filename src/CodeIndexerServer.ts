@@ -106,7 +106,7 @@ export class CodeIndexerServer {
 		// Create MCP server with stdio capabilities
 		this.mcpServer = new Server({
 			name: 'code-indexer',
-			version: '1.0.1',
+			version: '1.0.2',
 		}, {
 			capabilities: {
 				tools: {
