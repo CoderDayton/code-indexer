@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+
+# IDE files
+.vscode/
+.idea/
+.github/
+.kilocode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+*.tsbuildinfo
+
+# TypeScript
+*.tsbuild
+QWEN.md
+IMPLEMENTATION_SUMMARY.md
