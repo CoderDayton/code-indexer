@@ -406,11 +406,21 @@ export class CodeIndexer implements ICodeIndexer {
 					break
 				} catch (error) {
 					lastError = error instanceof Error ? error : new Error('Unknown error')
+
+					// Enhanced error logging for permission issues
+					const isForbidden = lastError.message.toLowerCase().includes('forbidden') ||
+					                   (error as any)?.status === 403
+
 					this.logger.warn('Qdrant upsert failed', {
 						filePath,
 						attempt,
 						maxRetries,
 						error: lastError.message,
+						status: (error as any)?.status,
+						isForbidden,
+						...(isForbidden && {
+							hint: 'Check if API key has write permissions - current error suggests insufficient privileges'
+						})
 					})
 
 					if (attempt < maxRetries) {

@@ -5,7 +5,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Build output
-dist/
+# dist/
 build/
 
 # Runtime logs
@@ -26,6 +26,8 @@ coverage/
 .idea/
 *.swp
 *.swo
+.github/
+.kilocode/
 
 # OS files
 .DS_Store
