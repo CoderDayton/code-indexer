@@ -1,9 +1,5 @@
-import * as dotenv from 'dotenv'
 import * as fs from 'fs'
 import * as path from 'path'
-
-// Load environment variables
-dotenv.config()
 
 interface QdrantConfig {
 	url: string

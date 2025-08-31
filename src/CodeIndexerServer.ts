@@ -4,9 +4,8 @@ import {
 	ListToolsRequestSchema,
 	CallToolRequestSchema,
 	ErrorCode,
-	McpError
+	McpError,
 } from '@modelcontextprotocol/sdk/types.js'
-import { z } from 'zod'
 import { QdrantClient } from '@qdrant/js-client-rest'
 import { CodeIndexer } from './CodeIndexer.js'
 import { FileWatcher } from './FileWatcher.js'
@@ -66,9 +65,45 @@ export class CodeIndexerServer {
 				url: this.config.qdrant.url,
 			}
 
+			const key = this.config.qdrant.apiKey
+
 			// Add API key if provided
-			if (this.config.qdrant.apiKey) {
-				qdrantConfig.apiKey = this.config.qdrant.apiKey
+			if (key) {
+				const validKey = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key)
+				if (!validKey) {
+					this.logger.error(
+						'Invalid Qdrant API key format - expected JWT format (xxx.yyy.zzz)'
+					)
+					throw new Error(
+						'Invalid Qdrant API key format. Expected JWT format with three base64 segments separated by dots.'
+					)
+				}
+				qdrantConfig.apiKey = key
+				this.logger.info('Qdrant API key loaded and validated successfully')
+			} else if (process.env.QDRANT_API_KEY) {
+				const envKey = process.env.QDRANT_API_KEY
+				const validEnvKey = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
+					envKey
+				)
+				if (!validEnvKey) {
+					this.logger.error(
+						'Invalid Qdrant API key format from environment - expected JWT format (xxx.yyy.zzz)'
+					)
+					throw new Error(
+						'Invalid Qdrant API key format from environment. Expected JWT format with three base64 segments separated by dots.'
+					)
+				}
+				qdrantConfig.apiKey = envKey
+				this.logger.info(
+					'Qdrant API key loaded from environment and validated successfully'
+				)
+			} else {
+				this.logger.error(
+					'No Qdrant API key found in configuration or environment variables'
+				)
+				throw new Error(
+					'No Qdrant API key provided. Please set QDRANT_API_KEY in your environment or MCP client configuration.'
+				)
 			}
 
 			this.qdrantClient = new QdrantClient(qdrantConfig)
@@ -104,25 +139,28 @@ export class CodeIndexerServer {
 		this.watcher = new FileWatcher(this.indexer, this.config.watching)
 
 		// Create MCP server with stdio capabilities
-		this.mcpServer = new Server({
-			name: 'code-indexer',
-			version: '1.0.2',
-		}, {
-			capabilities: {
-				tools: {
-                    supported: true,
-                    // List of available tools
-                    available: [
-                        'index_specific_files',
-                        'retrieve_data',
-                        'reindex_all',
-                        'start_watching',
-                        'stop_watching',
-                        'get_status'
-                    ]
-                },
+		this.mcpServer = new Server(
+			{
+				name: 'code-indexer',
+				version: '1.0.3',
 			},
-		})
+			{
+				capabilities: {
+					tools: {
+						supported: true,
+						// List of available tools
+						available: [
+							'index_specific_files',
+							'retrieve_data',
+							'reindex_all',
+							'start_watching',
+							'stop_watching',
+							'get_status',
+						],
+					},
+				},
+			}
+		)
 
 		// Set up transport
 		this.transport = new StdioServerTransport()
@@ -147,11 +185,11 @@ export class CodeIndexerServer {
 								filePaths: {
 									type: 'array',
 									items: { type: 'string' },
-									description: 'Array of file paths to index'
-								}
+									description: 'Array of file paths to index',
+								},
 							},
-							required: ['filePaths']
-						}
+							required: ['filePaths'],
+						},
 					},
 					{
 						name: 'retrieve_data',
@@ -161,15 +199,15 @@ export class CodeIndexerServer {
 							properties: {
 								query: {
 									type: 'string',
-									description: 'The search query'
+									description: 'The search query',
 								},
 								topK: {
 									type: 'number',
-									description: 'Number of results to return (default: 10)'
-								}
+									description: 'Number of results to return (default: 10)',
+								},
 							},
-							required: ['query']
-						}
+							required: ['query'],
+						},
 					},
 					{
 						name: 'reindex_all',
@@ -179,10 +217,10 @@ export class CodeIndexerServer {
 							properties: {
 								directory: {
 									type: 'string',
-									description: 'The directory to reindex (default: current directory)'
-								}
-							}
-						}
+									description: 'The directory to reindex (default: current directory)',
+								},
+							},
+						},
 					},
 					{
 						name: 'start_watching',
@@ -192,28 +230,28 @@ export class CodeIndexerServer {
 							properties: {
 								directory: {
 									type: 'string',
-									description: 'The directory to watch (default: current directory)'
-								}
-							}
-						}
+									description: 'The directory to watch (default: current directory)',
+								},
+							},
+						},
 					},
 					{
 						name: 'stop_watching',
 						description: 'Stop watching for file changes',
 						inputSchema: {
 							type: 'object',
-							properties: {}
-						}
+							properties: {},
+						},
 					},
 					{
 						name: 'get_status',
 						description: 'Get the current status of the code indexer',
 						inputSchema: {
 							type: 'object',
-							properties: {}
-						}
-					}
-				]
+							properties: {},
+						},
+					},
+				],
 			}
 		})
 
@@ -268,9 +306,7 @@ export class CodeIndexerServer {
 
 		await this.indexSpecificFiles(filePaths)
 		return {
-			content: [
-				{ type: 'text', text: `Successfully indexed ${filePaths.length} files` },
-			],
+			content: [{ type: 'text', text: `Successfully indexed ${filePaths.length} files` }],
 		}
 	}
 
@@ -286,11 +322,7 @@ export class CodeIndexerServer {
 			content: [
 				{
 					type: 'text',
-					text: `Found ${results.length} results:\n${JSON.stringify(
-						results,
-						null,
-						2
-					)}`,
+					text: `Found ${results.length} results:\n${JSON.stringify(results, null, 2)}`,
 				},
 			],
 		}
@@ -312,18 +344,14 @@ export class CodeIndexerServer {
 		const targetDir = directory || './'
 		await this.startWatching(targetDir)
 		return {
-			content: [
-				{ type: 'text', text: `Started watching for changes in ${targetDir}` },
-			],
+			content: [{ type: 'text', text: `Started watching for changes in ${targetDir}` }],
 		}
 	}
 
 	private async handleStopWatching() {
 		await this.stopWatching()
 		return {
-			content: [
-				{ type: 'text', text: 'Stopped watching for file changes' },
-			],
+			content: [{ type: 'text', text: 'Stopped watching for file changes' }],
 		}
 	}
 
