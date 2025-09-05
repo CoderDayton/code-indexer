@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { initializeConfiguration, getConfigManager } from './config/unified.js'
 import { CodeIndexerServer } from './CodeIndexerServer.js'
+import { onStartup } from './startup.js'
+
 
 async function main() {
 	try {
@@ -37,6 +39,11 @@ async function main() {
 		console.log('🚀 Starting Code Indexer MCP Server...')
 		const server = new CodeIndexerServer(config)
 		await server.startServer()
+
+		// Non-blocking startup tasks (after server is ready)
+		onStartup(server, config).catch((e) => {
+			console.error('Startup hook failed:', e)
+		})
 
 	} catch (err: any) {
 		console.error('💥 Fatal error initializing server:', err)

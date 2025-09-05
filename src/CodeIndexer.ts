@@ -8,6 +8,8 @@ import { glob } from 'glob'
 import { Logger, getLogger } from './logger.js'
 import { Config } from './env/schema.js'
 import { ICodeIndexer } from './ICodeIndexer.js'
+import { ExclusionConfigManager } from './config/exclusions.js'
+import { FileMatcher } from './config/file-matcher.js'
 
 interface EmbeddingConfig {
 	model: string
@@ -23,6 +25,8 @@ interface FileMetadata {
 	fileType: string
 	checksum: string
 	indexed: string
+	createdAt: string
+	expiresAt?: string
 	[key: string]: any
 }
 
@@ -40,6 +44,8 @@ interface IncrementalState {
 		checksum: string
 		lastModified: string
 		indexed: string
+		createdAt: string
+		expiresAt?: string
 	}
 }
 
@@ -53,6 +59,12 @@ export class CodeIndexer implements ICodeIndexer {
 	private ollamaClient: Ollama
 	private logger: Logger
 	private config: Config
+	private freshnessWindowMs: number
+
+	// Lazy purge mechanism
+	private lastPurgeTime: number = 0
+	private purgeIntervalMs: number = 5 * 60 * 1000 // 5 minutes minimum between purges
+	private isPurging: boolean = false
 
 	// Concurrency control
 	private indexingQueue: Map<string, Promise<void>> = new Map()
@@ -67,6 +79,10 @@ export class CodeIndexer implements ICodeIndexer {
 	private metadataFile: string
 	private stats: IndexStats
 
+	// Advanced exclusion system
+	private exclusionManager: ExclusionConfigManager | null = null
+	private fileMatcher: FileMatcher | null = null
+
 	constructor(qdrantClient: QdrantClient, collectionName: string, config: Config) {
 		this.qdrantClient = qdrantClient
 		this.collectionName = collectionName
@@ -74,15 +90,24 @@ export class CodeIndexer implements ICodeIndexer {
 			model: config.ollama.model,
 			dimensions: config.embedding.dimensions,
 			chunkSize: config.embedding.chunkSize,
-			chunkOverlap: config.embedding.chunkOverlap
+			chunkOverlap: config.embedding.chunkOverlap,
 		}
 		this.config = config
 		this.logger = getLogger('CodeIndexer')
 		this.maxConcurrency = config.indexing.maxConcurrency
 
+		// Temporal indexing configuration
+		this.freshnessWindowMs = (config.indexing.ttlHours ?? 24) * 60 * 60 * 1000
+
 		// Initialize file paths for persistence
-		this.incrementalStateFile = path.join(config.app.baseDirectory || process.cwd(), '.indexer-state.json')
-		this.metadataFile = path.join(config.app.baseDirectory || process.cwd(), '.indexer-metadata.json')
+		this.incrementalStateFile = path.join(
+			config.app.baseDirectory || process.cwd(),
+			'.indexer-state.json'
+		)
+		this.metadataFile = path.join(
+			config.app.baseDirectory || process.cwd(),
+			'.indexer-metadata.json'
+		)
 
 		// Initialize Ollama client with proper configuration and error handling
 		try {
@@ -114,6 +139,54 @@ export class CodeIndexer implements ICodeIndexer {
 		// Load persistent state
 		this.loadIncrementalState()
 		this.loadMetadata()
+
+		// Initialize advanced exclusion system if enabled (async initialization will happen on first use)
+		this.initializeExclusionSystemAsync()
+	}
+
+	/**
+	 * Initialize advanced exclusion system asynchronously
+	 */
+	private initializeExclusionSystemAsync(): void {
+		// Don't await this - let it initialize in the background
+		this.doInitializeExclusionSystem().catch((error) => {
+			this.logger.error('Failed to initialize advanced exclusion system', {
+				error: error instanceof Error ? error.message : 'Unknown error',
+			})
+		})
+	}
+
+	/**
+	 * Initialize advanced exclusion system
+	 */
+	private async doInitializeExclusionSystem(): Promise<void> {
+		if (!this.config.watching.useAdvancedExclusions) {
+			this.logger.info('Advanced exclusions disabled, using legacy ignore patterns')
+			return
+		}
+
+		try {
+			const configPath = path.resolve(
+				this.config.app.baseDirectory || process.cwd(),
+				this.config.watching.exclusionConfigPath
+			)
+
+			this.exclusionManager = await ExclusionConfigManager.loadFromFile(configPath)
+			this.fileMatcher = new FileMatcher(
+				this.exclusionManager,
+				this.config.app.baseDirectory || process.cwd()
+			)
+
+			this.logger.info('Advanced exclusion system initialized', {
+				configPath,
+				totalPatterns: this.exclusionManager.getAllExclusionPatterns().length,
+			})
+		} catch (error) {
+			this.logger.error('Failed to initialize advanced exclusion system', {
+				error: error instanceof Error ? error.message : 'Unknown error',
+			})
+			this.logger.info('Falling back to legacy ignore patterns')
+		}
 	}
 
 	/**
@@ -192,6 +265,64 @@ export class CodeIndexer implements ICodeIndexer {
 	}
 
 	/**
+	 * Check if file should be excluded from indexing
+	 */
+	private async shouldExcludeFile(filePath: string): Promise<boolean> {
+		// Use advanced exclusion system if available
+		if (this.fileMatcher) {
+			try {
+				const result = await this.fileMatcher.shouldExclude(filePath)
+				if (result.shouldExclude) {
+					this.logger.debug('File excluded by advanced exclusion system', {
+						filePath,
+						reason: result.reason,
+						pattern: result.matchedPattern,
+						overridden: result.overridden,
+					})
+					return true
+				}
+				return false
+			} catch (error) {
+				this.logger.warn('Error in advanced exclusion check, falling back to legacy', {
+					filePath,
+					error: error instanceof Error ? error.message : 'Unknown error',
+				})
+			}
+		}
+
+		// Fallback to legacy ignore patterns
+		const relativePath = path.relative(
+			this.config.app.baseDirectory || process.cwd(),
+			filePath
+		)
+		for (const pattern of this.config.watching.ignorePatterns) {
+			if (
+				this.matchLegacyPattern(relativePath, pattern) ||
+				this.matchLegacyPattern(path.basename(filePath), pattern)
+			) {
+				this.logger.debug('File excluded by legacy pattern', { filePath, pattern })
+				return true
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * Legacy pattern matching for backward compatibility
+	 */
+	private matchLegacyPattern(str: string, pattern: string): boolean {
+		const regexPattern = pattern
+			.replace(/\*\*/g, '.*')
+			.replace(/\*/g, '[^/]*')
+			.replace(/\?/g, '.')
+			.replace(/\./g, '\\.')
+
+		const regex = new RegExp(`^${regexPattern}$`, 'i')
+		return regex.test(str)
+	}
+
+	/**
 	 * Check if file needs to be indexed (incremental indexing)
 	 */
 	private async needsIndexing(filePath: string): Promise<boolean> {
@@ -250,10 +381,14 @@ export class CodeIndexer implements ICodeIndexer {
 				}
 
 				if (response.embedding.length !== this.embeddingConfig.dimensions) {
-					this.logger.warn('Embedding dimension mismatch', {
-						expected: this.embeddingConfig.dimensions,
-						actual: response.embedding.length,
-					})
+					const expected = this.embeddingConfig.dimensions
+					const actual = response.embedding.length
+					this.logger.warn('Embedding dimension mismatch; adjusting vector length', { expected, actual })
+					if (actual > expected) {
+						response.embedding = response.embedding.slice(0, expected)
+					} else {
+						response.embedding = response.embedding.concat(new Array(expected - actual).fill(0))
+					}
 				}
 
 				this.logger.debug('Successfully generated embedding', {
@@ -348,6 +483,12 @@ export class CodeIndexer implements ICodeIndexer {
 				throw new Error(`File does not exist: ${filePath}`)
 			}
 
+			// Check if file should be excluded
+			if (await this.shouldExcludeFile(filePath)) {
+				this.logger.info('File skipped (excluded)', { filePath })
+				return
+			}
+
 			// Check if indexing is needed (incremental)
 			if (!(await this.needsIndexing(filePath))) {
 				this.logger.info('File skipped (no changes)', { filePath })
@@ -365,15 +506,20 @@ export class CodeIndexer implements ICodeIndexer {
 			})
 			const embedding = await this.generateEmbedding(content)
 
-			// Prepare metadata
+			// Prepare metadata with temporal fields
 			const stats = fs.statSync(filePath)
+			const nowIso = new Date().toISOString()
+			const ttlMs = (this.config.indexing.ttlHours ?? 24) * 60 * 60 * 1000
+			const expiresAtIso = new Date(Date.now() + ttlMs).toISOString()
 			const metadata: FileMetadata = {
 				filePath: filePath,
 				fileSize: stats.size,
 				lastModified: stats.mtime.toISOString(),
 				fileType: path.extname(filePath).substring(1) || 'unknown',
 				checksum,
-				indexed: new Date().toISOString(),
+				indexed: nowIso,
+				createdAt: nowIso,
+				expiresAt: expiresAtIso,
 			}
 
 			// Generate deterministic UUID for the file
@@ -408,8 +554,9 @@ export class CodeIndexer implements ICodeIndexer {
 					lastError = error instanceof Error ? error : new Error('Unknown error')
 
 					// Enhanced error logging for permission issues
-					const isForbidden = lastError.message.toLowerCase().includes('forbidden') ||
-					                   (error as any)?.status === 403
+					const isForbidden =
+						lastError.message.toLowerCase().includes('forbidden') ||
+						(error as any)?.status === 403
 
 					this.logger.warn('Qdrant upsert failed', {
 						filePath,
@@ -419,8 +566,8 @@ export class CodeIndexer implements ICodeIndexer {
 						status: (error as any)?.status,
 						isForbidden,
 						...(isForbidden && {
-							hint: 'Check if API key has write permissions - current error suggests insufficient privileges'
-						})
+							hint: 'Check if API key has write permissions - current error suggests insufficient privileges',
+						}),
 					})
 
 					if (attempt < maxRetries) {
@@ -436,11 +583,13 @@ export class CodeIndexer implements ICodeIndexer {
 				)
 			}
 
-			// Update incremental state
+			// Update incremental state with temporal fields
 			this.incrementalState[filePath] = {
 				checksum,
 				lastModified: metadata.lastModified,
 				indexed: metadata.indexed,
+				createdAt: metadata.createdAt,
+				expiresAt: metadata.expiresAt,
 			}
 
 			// Update stats
@@ -552,18 +701,46 @@ export class CodeIndexer implements ICodeIndexer {
 			const queryEmbedding = await this.generateEmbedding(query)
 
 			// Search in Qdrant
-			const searchResult = await this.qdrantClient.search(this.collectionName, {
+			const rawResults = await this.qdrantClient.search(this.collectionName, {
 				vector: queryEmbedding,
-				limit,
+				limit: Math.max(limit * 2, limit + 5), // fetch extra to allow filtering
 				with_payload: true,
 			})
 
+			// Temporal filtering: only fresh (within freshnessWindowMs) and not expired
+			const now = Date.now()
+			const filtered = rawResults.filter((r: any) => {
+				const payload = r.payload || {}
+				const createdAt =
+					typeof payload.createdAt === 'string' ? Date.parse(payload.createdAt) : NaN
+				const expiresAt =
+					typeof payload.expiresAt === 'string' ? Date.parse(payload.expiresAt) : NaN
+
+				// If invalid createdAt, consider it stale and exclude
+				if (!Number.isFinite(createdAt)) return false
+
+				// Exclude if expired
+				if (Number.isFinite(expiresAt) && expiresAt < now) return false
+
+				// Exclude if older than freshness window
+				if (now - createdAt > this.freshnessWindowMs) return false
+
+				return true
+			})
+
+			const finalResults = filtered.slice(0, limit)
+
 			this.logger.info('Search completed', {
-				resultsCount: searchResult.length,
+				requested: limit,
+				resultsCount: finalResults.length,
+				filteredOut: rawResults.length - finalResults.length,
 				query: query.substring(0, 50),
 			})
 
-			return searchResult
+			// Trigger lazy purge after successful search (non-blocking)
+			this.triggerLazyPurge()
+
+			return finalResults
 		} catch (error) {
 			this.logger.error('Search failed', {
 				query: query.substring(0, 50),
@@ -619,6 +796,138 @@ export class CodeIndexer implements ICodeIndexer {
 	}
 
 	/**
+	 * Get temporal statistics based on incremental state
+	 */
+	getTemporalStats(): {
+		freshEmbeddings: number
+		expiredEmbeddings: number
+		totalTracked: number
+		averageAgeMs: number
+		lastPurgeTime: number
+		nextPurgeEligibleTime: number
+		isPurging: boolean
+	} {
+		const now = Date.now()
+		let fresh = 0
+		let expired = 0
+		let totalAgeMs = 0
+		let ageCount = 0
+		const entries = Object.values(this.incrementalState)
+		for (const entry of entries) {
+			const created =
+				typeof entry.createdAt === 'string' ? Date.parse(entry.createdAt) : NaN
+			const expires =
+				typeof entry.expiresAt === 'string' ? Date.parse(entry.expiresAt) : NaN
+			if (Number.isFinite(expires) && expires < now) {
+				expired++
+				continue
+			}
+			if (Number.isFinite(created)) {
+				const age = now - created
+				totalAgeMs += age
+				ageCount++
+				if (age <= this.freshnessWindowMs) {
+					fresh++
+				}
+			}
+		}
+		return {
+			freshEmbeddings: fresh,
+			expiredEmbeddings: expired,
+			totalTracked: entries.length,
+			averageAgeMs: ageCount > 0 ? Math.round(totalAgeMs / ageCount) : 0,
+			lastPurgeTime: this.lastPurgeTime,
+			nextPurgeEligibleTime: this.lastPurgeTime + this.purgeIntervalMs,
+			isPurging: this.isPurging,
+		}
+	}
+
+	/**
+	 * Trigger lazy purge of expired embeddings (non-blocking)
+	 */
+	private triggerLazyPurge(): void {
+		const now = Date.now()
+
+		// Skip if already purging or too soon since last purge
+		if (this.isPurging || now - this.lastPurgeTime < this.purgeIntervalMs) {
+			return
+		}
+
+		// Run purge in background without blocking search
+		this.performLazyPurge().catch((error) => {
+			this.logger.error('Background purge failed', {
+				error: error instanceof Error ? error.message : 'Unknown error',
+			})
+		})
+	}
+
+	/**
+	 * Perform the actual purge operation
+	 */
+	private async performLazyPurge(): Promise<void> {
+		if (this.isPurging) {
+			return
+		}
+
+		this.isPurging = true
+		const startTime = Date.now()
+
+		try {
+			this.logger.debug('Starting lazy purge of expired embeddings')
+
+			// Delete expired points from Qdrant using payload filter
+			const now = new Date().toISOString()
+			const deleteResult = await this.qdrantClient.delete(this.collectionName, {
+				wait: true,
+				filter: {
+					must: [
+						{
+							key: 'expiresAt',
+							range: {
+								lt: now,
+							},
+						},
+					],
+				},
+			})
+
+			// Clean up incremental state for expired entries
+			const expiredPaths: string[] = []
+			const nowMs = Date.now()
+
+			for (const [filePath, entry] of Object.entries(this.incrementalState)) {
+				const expiresAt =
+					typeof entry.expiresAt === 'string' ? Date.parse(entry.expiresAt) : NaN
+				if (Number.isFinite(expiresAt) && expiresAt < nowMs) {
+					expiredPaths.push(filePath)
+					delete this.incrementalState[filePath]
+				}
+			}
+
+			// Save updated incremental state if we removed entries
+			if (expiredPaths.length > 0 && this.config.indexing.persistMetadata) {
+				this.saveIncrementalState()
+			}
+
+			const duration = Date.now() - startTime
+			this.lastPurgeTime = Date.now()
+
+			this.logger.info('Lazy purge completed', {
+				qdrantOperation: deleteResult.operation_id || 'unknown',
+				incrementalStateCleanup: expiredPaths.length,
+				durationMs: duration,
+			})
+		} catch (error) {
+			this.logger.error('Lazy purge operation failed', {
+				error: error instanceof Error ? error.message : 'Unknown error',
+				durationMs: Date.now() - startTime,
+			})
+		} finally {
+			this.isPurging = false
+		}
+	}
+
+	/**
 	 * Clear incremental state (force full re-index next time)
 	 */
 	clearIncrementalState(): void {
@@ -651,12 +960,8 @@ export class CodeIndexer implements ICodeIndexer {
 		try {
 			this.logger.info('Starting reindex all', { directory })
 
-			// Use glob to find all files
-			const pattern = path.join(directory, '**/*').replace(/\\/g, '/')
-			const files = await glob(pattern, {
-				nodir: true,
-				ignore: this.config.watching.ignorePatterns,
-			})
+			// Get all files using the new exclusion system
+			const files = await this.getAllFiles(directory)
 
 			if (files.length === 0) {
 				this.logger.warn('No files found to index', { directory })
@@ -708,17 +1013,25 @@ export class CodeIndexer implements ICodeIndexer {
 	}
 
 	/**
-	 * Get all files in directory (compatibility method)
+	 * Get all files in directory using advanced exclusion system
 	 */
 	async getAllFiles(directory: string): Promise<string[]> {
 		try {
+			this.logger.debug('Getting all files', { directory })
+
+			// Use advanced exclusion system if available
+			if (this.fileMatcher) {
+				return await this.getAllFilesAdvanced(directory)
+			}
+
+			// Fallback to legacy glob-based approach
 			const pattern = path.join(directory, '**/*').replace(/\\/g, '/')
 			const files = await glob(pattern, {
 				nodir: true,
 				ignore: this.config.watching.ignorePatterns,
 			})
 
-			this.logger.debug('Found files', { directory, count: files.length })
+			this.logger.debug('Found files (legacy)', { directory, count: files.length })
 			return files
 		} catch (error) {
 			this.logger.error('Failed to get all files', {
@@ -727,5 +1040,43 @@ export class CodeIndexer implements ICodeIndexer {
 			})
 			return []
 		}
+	}
+
+	/**
+	 * Get all files using advanced exclusion system
+	 */
+	private async getAllFilesAdvanced(directory: string): Promise<string[]> {
+		const files: string[] = []
+
+		const processDirectory = async (dir: string): Promise<void> => {
+			try {
+				const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+
+				for (const entry of entries) {
+					const fullPath = path.join(dir, entry.name)
+
+					// Check if this path should be excluded
+					if (await this.shouldExcludeFile(fullPath)) {
+						continue
+					}
+
+					if (entry.isDirectory()) {
+						await processDirectory(fullPath)
+					} else if (entry.isFile()) {
+						files.push(fullPath)
+					}
+				}
+			} catch (error) {
+				this.logger.warn('Error processing directory', {
+					directory: dir,
+					error: error instanceof Error ? error.message : 'Unknown error',
+				})
+			}
+		}
+
+		await processDirectory(directory)
+
+		this.logger.debug('Found files (advanced)', { directory, count: files.length })
+		return files
 	}
 }

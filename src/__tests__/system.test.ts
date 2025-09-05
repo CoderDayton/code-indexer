@@ -5,7 +5,16 @@ import { Ollama } from 'ollama';
 // Load environment variables
 dotenv.config();
 
-describe('Real MCP System Tests', () => {
+// Gate these real system tests behind RUN_E2E=true
+const runE2E = process.env.RUN_E2E === 'true'
+
+if (!runE2E) {
+  describe('Real MCP System Tests (skipped)', () => {
+    test('skipped (set RUN_E2E=true to run)', () => {
+      expect(true).toBe(true)
+    })
+  })
+} else describe('Real MCP System Tests', () => {
   let qdrantClient: QdrantClient;
   let ollamaClient: Ollama;
 

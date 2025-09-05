@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Code Indexer Exclusion Configuration",
+  "description": "Configuration file specifying which files and folders should be excluded from indexing operations",
+  "version": "1.0.0",
+  
+  "exclusions": {
+    "folders": {
+      "description": "Folder patterns to exclude from indexing (supports glob patterns)",
+      "patterns": [
+        "node_modules/**",
+        ".git/**",
+        ".svn/**",
+        ".hg/**",
+        ".bzr/**",
+        "dist/**",
+        "build/**",
+        "out/**",
+        "target/**",
+        "bin/**",
+        "obj/**",
+        ".next/**",
+        ".nuxt/**",
+        ".vuepress/dist/**",
+        "coverage/**",
+        ".nyc_output/**",
+        ".pytest_cache/**",
+        "__pycache__/**",
+        ".tox/**",
+        ".venv/**",
+        "venv/**",
+        "env/**",
+        ".env/**",
+        "vendor/**",
+        "Pods/**",
+        "DerivedData/**",
+        ".gradle/**",
+        ".m2/**",
+        ".ivy2/**",
+        ".sbt/**",
+        "tmp/**",
+        "temp/**",
+        ".tmp/**",
+        ".temp/**",
+        "logs/**",
+        "log/**",
+        ".logs/**",
+	"atlas_env/**"
+      ]
+    },
+    
+    "files": {
+      "description": "File patterns to exclude from indexing (supports glob patterns)",
+      "patterns": [
+        "*.log",
+        "*.tmp",
+        "*.temp",
+        "*.cache",
+        "*.pid",
+        "*.lock",
+        "*.swp",
+        "*.swo",
+        "*~",
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+        "*.min.js",
+        "*.min.css",
+        "*.map",
+        "*.bundle.js",
+        "*.bundle.css",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "composer.lock",
+        "Pipfile.lock",
+        "poetry.lock",
+        "Cargo.lock",
+        "go.sum",
+        "*.pyc",
+        "*.pyo",
+        "*.pyd",
+        "*.class",
+        "*.jar",
+        "*.war",
+        "*.ear",
+        "*.dll",
+        "*.exe",
+        "*.so",
+        "*.dylib",
+        "*.a",
+        "*.lib",
+        "*.o",
+        "*.obj",
+        "*.dSYM/**",
+        "core",
+        "*.core",
+        "*.dump"
+      ]
+    },
+    
+    "extensions": {
+      "description": "File extensions to exclude from indexing (without the dot)",
+      "patterns": [
+        "log",
+        "tmp",
+        "temp",
+        "cache",
+        "bak",
+        "backup",
+        "old",
+        "orig",
+        "rej",
+        "patch",
+        "diff",
+        "swp",
+        "swo",
+        "pid",
+        "lock"
+      ]
+    },
+    
+    "exact_names": {
+      "description": "Exact file/folder names to exclude (case-sensitive)",
+      "patterns": [
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+        ".gitkeep",
+        ".gitignore",
+        ".gitattributes",
+        ".gitmodules",
+        ".svnignore",
+        ".hgignore",
+        ".dockerignore",
+        ".eslintcache",
+        ".stylelintcache",
+        ".parcel-cache",
+        "npm-debug.log",
+        "yarn-debug.log",
+        "yarn-error.log",
+        "lerna-debug.log"
+      ]
+    },
+    
+    "size_limits": {
+      "description": "File size limits for exclusion",
+      "max_file_size_mb": 50,
+      "max_file_size_bytes": 52428800
+    },
+    
+    "content_based": {
+      "description": "Content-based exclusion rules",
+      "binary_files": true,
+      "empty_files": false,
+      "minified_files": true
+    }
+  },
+  
+  "inclusion_overrides": {
+    "description": "Patterns that should be included even if they match exclusion rules",
+    "patterns": [
+      "README.*",
+      "LICENSE*",
+      "CHANGELOG.*",
+      "CONTRIBUTING.*",
+      "*.md",
+      "*.txt",
+      "Dockerfile*",
+      "docker-compose*.yml",
+      "docker-compose*.yaml",
+      "Makefile",
+      "CMakeLists.txt",
+      "*.cmake"
+    ]
+  },
+  
+  "language_specific": {
+    "description": "Language-specific exclusion patterns",
+    "javascript": {
+      "folders": ["node_modules/**", ".next/**", ".nuxt/**", "dist/**", "build/**"],
+      "files": ["*.min.js", "*.bundle.js", "package-lock.json", "yarn.lock"]
+    },
+    "python": {
+      "folders": ["__pycache__/**", ".pytest_cache/**", ".tox/**", "venv/**", ".venv/**"],
+      "files": ["*.pyc", "*.pyo", "*.pyd", "Pipfile.lock", "poetry.lock"]
+    },
+    "java": {
+      "folders": ["target/**", ".gradle/**", ".m2/**"],
+      "files": ["*.class", "*.jar", "*.war", "*.ear"]
+    },
+    "csharp": {
+      "folders": ["bin/**", "obj/**", "packages/**"],
+      "files": ["*.dll", "*.exe", "*.pdb"]
+    },
+    "rust": {
+      "folders": ["target/**"],
+      "files": ["Cargo.lock"]
+    },
+    "go": {
+      "folders": ["vendor/**"],
+      "files": ["go.sum"]
+    },
+    "cpp": {
+      "folders": ["build/**", "cmake-build-*/**"],
+      "files": ["*.o", "*.obj", "*.a", "*.lib", "*.so", "*.dylib", "*.dll"]
+    }
+  },
+  
+  "custom_rules": {
+    "description": "Custom exclusion rules that can be enabled/disabled",
+    "exclude_test_files": false,
+    "exclude_documentation": false,
+    "exclude_config_files": false,
+    "exclude_sample_data": true
+  }
+}

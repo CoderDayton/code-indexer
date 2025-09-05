@@ -19,6 +19,13 @@ interface StatusResponse {
 	embeddingModel: string
 	qdrantConnected: boolean
 	ollamaHost: string
+	freshEmbeddings?: number
+	expiredEmbeddings?: number
+	averageAgeMs?: number
+	freshnessWindowMs?: number
+	lastPurgeTime?: number
+	nextPurgeEligibleTime?: number
+	isPurging?: boolean
 }
 
 /**
@@ -63,6 +70,8 @@ export class CodeIndexerServer {
 			}
 
 			const key = this.config.qdrant.apiKey
+			const isLocalUrl = (u: string) => /^(http:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?/.test(u)
+			const local = isLocalUrl(this.config.qdrant.url)
 
 			// Add API key if provided
 			if (key) {
@@ -97,28 +106,32 @@ export class CodeIndexerServer {
 				this.logger.info('Qdrant API key loaded and validated successfully')
 			} else if (process.env.QDRANT_API_KEY) {
 				const envKey = process.env.QDRANT_API_KEY
-				const validEnvKey = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
-					envKey
-				)
+				const validEnvKey = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(envKey)
 				if (!validEnvKey) {
-					this.logger.error(
-						'Invalid Qdrant API key format from environment - expected JWT format (xxx.yyy.zzz)'
-					)
-					throw new Error(
-						'Invalid Qdrant API key format from environment. Expected JWT format with three base64 segments separated by dots.'
-					)
+					if (local) {
+						this.logger.warn('Qdrant API key not in JWT format; continuing for local URL', { url: this.config.qdrant.url })
+					} else {
+						this.logger.error(
+							'Invalid Qdrant API key format from environment - expected JWT format (xxx.yyy.zzz)'
+						)
+						throw new Error(
+							'Invalid Qdrant API key format from environment. Expected JWT format with three base64 segments separated by dots.'
+						)
+					}
 				}
 				qdrantConfig.apiKey = envKey
 				this.logger.info(
 					'Qdrant API key loaded from environment and validated successfully'
 				)
 			} else {
-				this.logger.error(
-					'No Qdrant API key found in configuration or environment variables'
-				)
-				throw new Error(
-					'No Qdrant API key provided. Please set QDRANT_API_KEY in your environment or MCP client configuration.'
-				)
+				if (local) {
+					this.logger.warn('No Qdrant API key provided; continuing due to local URL', { url: this.config.qdrant.url })
+				} else {
+					this.logger.error('No Qdrant API key found in configuration or environment variables')
+					throw new Error(
+						'No Qdrant API key provided. Please set QDRANT_API_KEY in your environment or MCP client configuration.'
+					)
+				}
 			}
 
 			this.qdrantClient = new QdrantClient(qdrantConfig)
@@ -411,7 +424,23 @@ export class CodeIndexerServer {
 			// Create collection if it doesn't exist
 			try {
 				console.log(`Checking if collection '${this.collectionName}' exists...`)
-				await this.qdrantClient.getCollection(this.collectionName)
+				const info = await this.qdrantClient.getCollection(this.collectionName)
+				// Preflight: verify vector size matches configured embedding dimensions
+				const existingSize = (info as any)?.config?.params?.vectors?.size
+				const expectedSize = this.config.embedding.dimensions
+				if (typeof existingSize === 'number' && existingSize !== expectedSize) {
+					const message = [
+						`Vector size mismatch for collection '${this.collectionName}'.`,
+						`Existing size: ${existingSize}, Configured EMBEDDING_DIMENSIONS: ${expectedSize}.`,
+						'',
+						'Fix options:',
+						`- Update EMBEDDING_DIMENSIONS in .env to ${existingSize} (then restart), or`,
+						`- Use a new COLLECTION_NAME, or`,
+						`- Delete the existing collection to recreate with size ${expectedSize}.`,
+					].join('\n')
+					this.logger.error('Qdrant collection vector size mismatch', { existingSize, expectedSize, collection: this.collectionName })
+					throw new Error(message)
+				}
 				console.log(`✓ Collection '${this.collectionName}' already exists`)
 			} catch (error: any) {
 				// Collection doesn't exist, create it
@@ -517,6 +546,7 @@ export class CodeIndexerServer {
 				qdrantConnected = false
 			}
 
+			const temporal = this.indexer.getTemporalStats?.() ?? undefined
 			return {
 				watching: this.watcher.isWatching(),
 				collectionName: this.collectionName,
@@ -524,6 +554,13 @@ export class CodeIndexerServer {
 				embeddingModel: this.config.ollama.model,
 				qdrantConnected,
 				ollamaHost: this.config.ollama.host,
+				freshEmbeddings: temporal?.freshEmbeddings,
+				expiredEmbeddings: temporal?.expiredEmbeddings,
+				averageAgeMs: temporal?.averageAgeMs,
+				freshnessWindowMs: (this.indexer as any).freshnessWindowMs,
+				lastPurgeTime: temporal?.lastPurgeTime,
+				nextPurgeEligibleTime: temporal?.nextPurgeEligibleTime,
+				isPurging: temporal?.isPurging,
 			}
 		} catch (error) {
 			console.error('Error getting status:', error)

@@ -210,9 +210,12 @@ export class UnifiedConfigManager {
 				incrementalEnabled: env.ENABLE_INCREMENTAL_INDEXING,
 				persistMetadata: env.PERSIST_METADATA,
 				validationEnabled: env.VALIDATION_ENABLED,
+				ttlHours: env.TTL_HOURS,
 			},
 			watching: {
 				ignorePatterns: env.IGNORE_PATTERNS,
+				exclusionConfigPath: env.EXCLUSION_CONFIG_PATH,
+				useAdvancedExclusions: env.USE_ADVANCED_EXCLUSIONS,
 				debounceMs: env.DEBOUNCE_MS,
 				enableWatching: env.WATCH_ENABLED,
 			},
@@ -228,6 +231,7 @@ export class UnifiedConfigManager {
 				nodeEnv: env.NODE_ENV,
 				baseDirectory: env.BASE_DIRECTORY,
 				collectionName: env.COLLECTION_NAME,
+				immediateIndexingEnabled: env.IMMEDIATE_INDEXING_ENABLED ?? false,
 			},
 		}
 	}

@@ -1,0 +1,461 @@
+/**
+ * Enhanced File Matcher
+ * Provides sophisticated file and folder matching capabilities for exclusion patterns
+ */
+
+import * as path from 'path'
+import * as fs from 'fs'
+import { getLogger } from '../logger.js'
+import { ExclusionConfig, ExclusionConfigManager } from './exclusions.js'
+
+const logger = getLogger('FileMatcher')
+
+/**
+ * File information interface
+ */
+export interface FileInfo {
+	filePath: string
+	fileName: string
+	extension: string
+	size?: number
+	isDirectory?: boolean
+	relativePath?: string
+}
+
+/**
+ * Match result interface
+ */
+export interface MatchResult {
+	shouldExclude: boolean
+	reason?: string
+	matchedPattern?: string
+	overridden?: boolean
+}
+
+/**
+ * Enhanced file matcher with support for multiple exclusion types
+ */
+export class FileMatcher {
+	private exclusionManager: ExclusionConfigManager
+	private basePath: string
+
+	constructor(exclusionManager: ExclusionConfigManager, basePath: string = process.cwd()) {
+		this.exclusionManager = exclusionManager
+		this.basePath = basePath
+	}
+
+	/**
+	 * Check if a file or folder should be excluded
+	 */
+	async shouldExclude(filePath: string): Promise<MatchResult> {
+		try {
+			const fileInfo = await this.getFileInfo(filePath)
+			return this.checkExclusion(fileInfo)
+		} catch (error) {
+			logger.warn('Error checking file exclusion', {
+				filePath,
+				error: error instanceof Error ? error.message : 'Unknown error',
+			})
+			// Default to not excluding if we can't determine
+			return { shouldExclude: false, reason: 'Error checking file' }
+		}
+	}
+
+	/**
+	 * Check exclusion for file info
+	 */
+	private checkExclusion(fileInfo: FileInfo): MatchResult {
+		const config = this.exclusionManager.getConfig()
+
+		// Check inclusion overrides first
+		const overrideResult = this.checkInclusionOverrides(fileInfo)
+		if (overrideResult.shouldExclude === false) {
+			return { ...overrideResult, overridden: true }
+		}
+
+		// Check exact name matches
+		const exactNameResult = this.checkExactNames(fileInfo, config.exclusions.exact_names.patterns)
+		if (exactNameResult.shouldExclude) {
+			return exactNameResult
+		}
+
+		// Check folder patterns
+		if (fileInfo.isDirectory) {
+			const folderResult = this.checkFolderPatterns(fileInfo, config.exclusions.folders.patterns)
+			if (folderResult.shouldExclude) {
+				return folderResult
+			}
+		}
+
+		// Check file patterns
+		const fileResult = this.checkFilePatterns(fileInfo, config.exclusions.files.patterns)
+		if (fileResult.shouldExclude) {
+			return fileResult
+		}
+
+		// Check extension patterns
+		const extensionResult = this.checkExtensionPatterns(fileInfo, config.exclusions.extensions.patterns)
+		if (extensionResult.shouldExclude) {
+			return extensionResult
+		}
+
+		// Check size limits
+		if (fileInfo.size !== undefined) {
+			const sizeResult = this.checkSizeLimits(fileInfo)
+			if (sizeResult.shouldExclude) {
+				return sizeResult
+			}
+		}
+
+		// Check content-based rules
+		const contentResult = this.checkContentBasedRules(fileInfo)
+		if (contentResult.shouldExclude) {
+			return contentResult
+		}
+
+		// Check custom rules
+		const customResult = this.checkCustomRules(fileInfo)
+		if (customResult.shouldExclude) {
+			return customResult
+		}
+
+		// Check language-specific patterns
+		const languageResult = this.checkLanguageSpecificPatterns(fileInfo)
+		if (languageResult.shouldExclude) {
+			return languageResult
+		}
+
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check inclusion overrides
+	 */
+	private checkInclusionOverrides(fileInfo: FileInfo): MatchResult {
+		const overrides = this.exclusionManager.getInclusionOverrides()
+
+		for (const pattern of overrides) {
+			if (this.matchPattern(fileInfo.fileName, pattern) || 
+				this.matchPattern(fileInfo.filePath, pattern)) {
+				return {
+					shouldExclude: false,
+					reason: 'Inclusion override',
+					matchedPattern: pattern,
+				}
+			}
+		}
+
+		return { shouldExclude: true } // Continue checking exclusions
+	}
+
+	/**
+	 * Check exact name matches
+	 */
+	private checkExactNames(fileInfo: FileInfo, patterns: string[]): MatchResult {
+		for (const pattern of patterns) {
+			if (fileInfo.fileName === pattern) {
+				return {
+					shouldExclude: true,
+					reason: 'Exact name match',
+					matchedPattern: pattern,
+				}
+			}
+		}
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check folder patterns
+	 */
+	private checkFolderPatterns(fileInfo: FileInfo, patterns: string[]): MatchResult {
+		for (const pattern of patterns) {
+			if (this.matchPattern(fileInfo.relativePath || fileInfo.filePath, pattern) ||
+				this.matchPattern(fileInfo.fileName, pattern)) {
+				return {
+					shouldExclude: true,
+					reason: 'Folder pattern match',
+					matchedPattern: pattern,
+				}
+			}
+		}
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check file patterns
+	 */
+	private checkFilePatterns(fileInfo: FileInfo, patterns: string[]): MatchResult {
+		for (const pattern of patterns) {
+			if (this.matchPattern(fileInfo.fileName, pattern) ||
+				this.matchPattern(fileInfo.filePath, pattern)) {
+				return {
+					shouldExclude: true,
+					reason: 'File pattern match',
+					matchedPattern: pattern,
+				}
+			}
+		}
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check extension patterns
+	 */
+	private checkExtensionPatterns(fileInfo: FileInfo, patterns: string[]): MatchResult {
+		const extension = fileInfo.extension.toLowerCase()
+		
+		for (const pattern of patterns) {
+			if (extension === pattern.toLowerCase()) {
+				return {
+					shouldExclude: true,
+					reason: 'Extension match',
+					matchedPattern: pattern,
+				}
+			}
+		}
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check size limits
+	 */
+	private checkSizeLimits(fileInfo: FileInfo): MatchResult {
+		if (fileInfo.size === undefined) return { shouldExclude: false }
+
+		if (this.exclusionManager.shouldExcludeBySize(fileInfo.size)) {
+			return {
+				shouldExclude: true,
+				reason: 'File size exceeds limit',
+				matchedPattern: `>${this.exclusionManager.getConfig().exclusions.size_limits?.max_file_size_mb}MB`,
+			}
+		}
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check content-based rules
+	 */
+	private checkContentBasedRules(fileInfo: FileInfo): MatchResult {
+		const rules = this.exclusionManager.getContentBasedRules()
+
+		// Check for empty files
+		if (rules.empty_files && fileInfo.size === 0) {
+			return {
+				shouldExclude: true,
+				reason: 'Empty file',
+				matchedPattern: 'empty_files',
+			}
+		}
+
+		// Check for minified files (basic heuristic)
+		if (rules.minified_files && this.isMinifiedFile(fileInfo)) {
+			return {
+				shouldExclude: true,
+				reason: 'Minified file',
+				matchedPattern: 'minified_files',
+			}
+		}
+
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check custom rules
+	 */
+	private checkCustomRules(fileInfo: FileInfo): MatchResult {
+		const rules = this.exclusionManager.getCustomRules()
+
+		// Check for test files
+		if (rules.exclude_test_files && this.isTestFile(fileInfo)) {
+			return {
+				shouldExclude: true,
+				reason: 'Test file',
+				matchedPattern: 'exclude_test_files',
+			}
+		}
+
+		// Check for documentation files
+		if (rules.exclude_documentation && this.isDocumentationFile(fileInfo)) {
+			return {
+				shouldExclude: true,
+				reason: 'Documentation file',
+				matchedPattern: 'exclude_documentation',
+			}
+		}
+
+		// Check for config files
+		if (rules.exclude_config_files && this.isConfigFile(fileInfo)) {
+			return {
+				shouldExclude: true,
+				reason: 'Configuration file',
+				matchedPattern: 'exclude_config_files',
+			}
+		}
+
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Check language-specific patterns
+	 */
+	private checkLanguageSpecificPatterns(fileInfo: FileInfo): MatchResult {
+		const config = this.exclusionManager.getConfig()
+		if (!config.language_specific) return { shouldExclude: false }
+
+		for (const [language, langConfig] of Object.entries(config.language_specific)) {
+			// Check folder patterns
+			for (const pattern of langConfig.folders) {
+				if (this.matchPattern(fileInfo.relativePath || fileInfo.filePath, pattern)) {
+					return {
+						shouldExclude: true,
+						reason: `${language} language-specific folder`,
+						matchedPattern: pattern,
+					}
+				}
+			}
+
+			// Check file patterns
+			for (const pattern of langConfig.files) {
+				if (this.matchPattern(fileInfo.fileName, pattern)) {
+					return {
+						shouldExclude: true,
+						reason: `${language} language-specific file`,
+						matchedPattern: pattern,
+					}
+				}
+			}
+		}
+
+		return { shouldExclude: false }
+	}
+
+	/**
+	 * Get file information with error handling
+	 */
+    private async getFileInfo(filePath: string): Promise<FileInfo> {
+        try {
+            const stats = await fs.promises.stat(filePath)
+            const fileName = path.basename(filePath)
+            const extension = path.extname(fileName).slice(1) // Remove the dot
+            const relativePathRaw = path.relative(this.basePath, filePath)
+            // Normalize path separators for cross-platform matching
+            const normalizedPath = filePath.replace(/\\/g, '/')
+            const relativePath = relativePathRaw.split(path.sep).join('/')
+
+            return {
+                filePath: normalizedPath,
+                fileName,
+                extension,
+                size: stats.size,
+                isDirectory: stats.isDirectory(),
+                relativePath,
+            }
+        } catch (error) {
+            logger.warn('Error getting file info, using basic info', {
+                filePath,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            })
+
+            // Return basic file info if stat fails
+            const fileName = path.basename(filePath)
+            const extension = path.extname(fileName).slice(1)
+            const relativePathRaw = path.relative(this.basePath, filePath)
+            const normalizedPath = filePath.replace(/\\/g, '/')
+            const relativePath = relativePathRaw.split(path.sep).join('/')
+
+            return {
+                filePath: normalizedPath,
+                fileName,
+                extension,
+                relativePath,
+                // Don't set size or isDirectory if we can't determine them
+            }
+        }
+    }
+
+	/**
+	 * Match a string against a pattern using simple glob matching with error handling
+	 */
+	private matchPattern(str: string, pattern: string): boolean {
+		try {
+			// Convert glob pattern to regex
+			const regexPattern = pattern
+				.replace(/\*\*/g, '.*') // ** matches any number of directories
+				.replace(/\*/g, '[^/]*') // * matches any characters except /
+				.replace(/\?/g, '.') // ? matches any single character
+				.replace(/\./g, '\\.') // Escape dots
+				.replace(/\[/g, '\\[') // Escape brackets
+				.replace(/\]/g, '\\]')
+
+			const regex = new RegExp(`^${regexPattern}$`, 'i')
+			return regex.test(str) || regex.test(path.basename(str))
+		} catch (error) {
+			logger.warn('Error matching pattern, treating as no match', {
+				pattern,
+				str,
+				error: error instanceof Error ? error.message : 'Unknown error'
+			})
+			return false
+		}
+	}
+
+	/**
+	 * Check if file is minified (basic heuristic)
+	 */
+	private isMinifiedFile(fileInfo: FileInfo): boolean {
+		return fileInfo.fileName.includes('.min.') || 
+			   fileInfo.fileName.includes('.bundle.') ||
+			   fileInfo.fileName.endsWith('.min.js') ||
+			   fileInfo.fileName.endsWith('.min.css')
+	}
+
+	/**
+	 * Check if file is a test file
+	 */
+	private isTestFile(fileInfo: FileInfo): boolean {
+		const testPatterns = [
+			'*.test.*',
+			'*.spec.*',
+			'*_test.*',
+			'*_spec.*',
+			'test_*',
+			'spec_*',
+		]
+		
+		return testPatterns.some(pattern => this.matchPattern(fileInfo.fileName, pattern)) ||
+			   fileInfo.filePath.includes('/test/') ||
+			   fileInfo.filePath.includes('/tests/') ||
+			   fileInfo.filePath.includes('/__tests__/')
+	}
+
+	/**
+	 * Check if file is documentation
+	 */
+	private isDocumentationFile(fileInfo: FileInfo): boolean {
+		const docPatterns = ['*.md', '*.txt', '*.rst', '*.adoc']
+		const docNames = ['README', 'CHANGELOG', 'LICENSE', 'CONTRIBUTING', 'DOCS']
+		
+		return docPatterns.some(pattern => this.matchPattern(fileInfo.fileName, pattern)) ||
+			   docNames.some(name => fileInfo.fileName.toUpperCase().startsWith(name)) ||
+			   fileInfo.filePath.includes('/docs/') ||
+			   fileInfo.filePath.includes('/documentation/')
+	}
+
+	/**
+	 * Check if file is a configuration file
+	 */
+	private isConfigFile(fileInfo: FileInfo): boolean {
+		const configPatterns = [
+			'*.config.*',
+			'*.conf',
+			'*.ini',
+			'*.cfg',
+			'.*rc',
+			'.*ignore',
+		]
+		
+		return configPatterns.some(pattern => this.matchPattern(fileInfo.fileName, pattern)) ||
+			   fileInfo.fileName.startsWith('.') ||
+			   fileInfo.filePath.includes('/config/')
+	}
+}
