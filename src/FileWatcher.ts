@@ -3,6 +3,10 @@ import { ICodeIndexer } from './ICodeIndexer.js'
 
 interface WatchingConfig {
 	ignorePatterns: string[]
+	exclusionConfigPath: string
+	useAdvancedExclusions: boolean
+	debounceMs: number
+	enableWatching: boolean
 }
 
 /**
@@ -12,6 +16,7 @@ interface WatchingConfig {
  * 1. Watching file system for changes (add, update, delete)
  * 2. Triggering reindexing when files change
  * 3. Managing the file watching lifecycle
+ * 4. Respecting exclusion patterns (both legacy and advanced)
  *
  * @author malu
  */
@@ -19,6 +24,7 @@ export class FileWatcher {
 	private indexer: ICodeIndexer
 	private config: WatchingConfig
 	private watcher: chokidar.FSWatcher | null
+	private debounceTimers: Map<string, NodeJS.Timeout> = new Map()
 
 	constructor(indexer: ICodeIndexer, config: WatchingConfig) {
 		this.indexer = indexer
@@ -37,30 +43,31 @@ export class FileWatcher {
 				this.stopWatching()
 			}
 
+			// Use legacy ignore patterns for chokidar (basic filtering)
+			// The advanced exclusion system will do additional filtering in the indexer
+			const chokidarIgnorePatterns = this.config.useAdvancedExclusions
+				? this.getBasicIgnorePatterns()
+				: this.config.ignorePatterns
+
 			this.watcher = chokidar.watch(directory, {
-				ignored: this.config.ignorePatterns,
+				ignored: chokidarIgnorePatterns,
 				persistent: true,
+				ignoreInitial: true, // Don't trigger events for existing files
 			})
 
 			this.watcher
-				.on('add', async (filePath: string) => {
+				.on('add', (filePath: string) => {
 					console.log(`File ${filePath} has been added`)
-					try {
-						await this.indexer.indexFile(filePath)
-					} catch (error) {
-						console.error(`Failed to index added file ${filePath}:`, error)
-					}
+					this.debouncedIndexFile(filePath)
 				})
-				.on('change', async (filePath: string) => {
+				.on('change', (filePath: string) => {
 					console.log(`File ${filePath} has been changed`)
-					try {
-						await this.indexer.indexFile(filePath)
-					} catch (error) {
-						console.error(`Failed to reindex changed file ${filePath}:`, error)
-					}
+					this.debouncedIndexFile(filePath)
 				})
 				.on('unlink', async (filePath: string) => {
 					console.log(`File ${filePath} has been removed`)
+					// Clear any pending debounced operations for this file
+					this.clearDebounceTimer(filePath)
 					try {
 						await this.indexer.deleteFileFromIndex(filePath)
 					} catch (error) {
@@ -72,6 +79,7 @@ export class FileWatcher {
 				})
 
 			console.log(`Started watching directory: ${directory}`)
+			console.log(`Using ${this.config.useAdvancedExclusions ? 'advanced' : 'legacy'} exclusion system`)
 		} catch (error) {
 			console.error(`Failed to start watching directory ${directory}:`, error)
 			throw new Error(
@@ -87,6 +95,10 @@ export class FileWatcher {
 	 */
 	stopWatching(): void {
 		if (this.watcher) {
+			// Clear all pending debounce timers
+			this.debounceTimers.forEach((timer) => clearTimeout(timer))
+			this.debounceTimers.clear()
+
 			this.watcher
 				.close()
 				.then(() => {
@@ -106,5 +118,67 @@ export class FileWatcher {
 	 */
 	isWatching(): boolean {
 		return !!this.watcher
+	}
+
+	/**
+	 * Debounced file indexing to prevent excessive indexing on rapid file changes
+	 * @param filePath The file path to index
+	 */
+	private debouncedIndexFile(filePath: string): void {
+		// Clear existing timer for this file
+		this.clearDebounceTimer(filePath)
+
+		// Set new timer
+		const timer = setTimeout(async () => {
+			try {
+				await this.indexer.indexFile(filePath)
+				this.debounceTimers.delete(filePath)
+			} catch (error) {
+				console.error(`Failed to index file ${filePath}:`, error)
+				this.debounceTimers.delete(filePath)
+			}
+		}, this.config.debounceMs)
+
+		this.debounceTimers.set(filePath, timer)
+	}
+
+	/**
+	 * Clear debounce timer for a specific file
+	 * @param filePath The file path
+	 */
+	private clearDebounceTimer(filePath: string): void {
+		const existingTimer = this.debounceTimers.get(filePath)
+		if (existingTimer) {
+			clearTimeout(existingTimer)
+			this.debounceTimers.delete(filePath)
+		}
+	}
+
+	/**
+	 * Get basic ignore patterns for chokidar when using advanced exclusions
+	 * This provides a first-level filter before the advanced exclusion system
+	 * @returns Array of basic ignore patterns
+	 */
+	private getBasicIgnorePatterns(): string[] {
+		return [
+			'**/node_modules/**',
+			'**/.git/**',
+			'**/dist/**',
+			'**/build/**',
+			'**/coverage/**',
+			'**/.next/**',
+			'**/.nuxt/**',
+			'**/target/**',
+			'**/bin/**',
+			'**/obj/**',
+			'**/__pycache__/**',
+			'**/.venv/**',
+			'**/venv/**',
+			'**/*.log',
+			'**/*.tmp',
+			'**/*.cache',
+			'**/.DS_Store',
+			'**/Thumbs.db'
+		]
 	}
 }

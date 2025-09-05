@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals'
 import { CodeIndexer } from '../CodeIndexer.js'
 import { QdrantClient } from '@qdrant/js-client-rest'
 import { Config } from '../env/schema.js'
@@ -38,6 +39,7 @@ describe('CodeIndexer', () => {
 				incrementalEnabled: true,
 				persistMetadata: true,
 				validationEnabled: true,
+				ttlHours: 24,
 			},
 			watching: {
 				ignorePatterns: ['node_modules/**', '*.git/**'],

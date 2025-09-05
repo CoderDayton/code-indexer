@@ -9,7 +9,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
-describe('Integration Tests - Real MCP Data', () => {
+// Gate these real integration tests behind RUN_E2E=true to avoid
+// requiring live services during regular unit test runs.
+const runE2E = process.env.RUN_E2E === 'true'
+
+if (!runE2E) {
+  describe('Integration Tests - Real MCP Data (skipped)', () => {
+    test('skipped (set RUN_E2E=true to run)', () => {
+      expect(true).toBe(true)
+    })
+  })
+} else describe('Integration Tests - Real MCP Data', () => {
   let qdrantClient: QdrantClient;
   let ollamaClient: Ollama;
 
