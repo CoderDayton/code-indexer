@@ -28,6 +28,8 @@ coverage/
 *.swo
 .github/
 .kilocode/
+.roo/
+.cursor/
 
 # OS files
 .DS_Store
@@ -37,6 +39,7 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+logs
 
 # Backup files
 *.backup
